@@ -9,11 +9,14 @@ import { MemoryLicenseRepository } from "./adapters/memory-license-repository.js
 import { EntitlementService } from "./billing/entitlement-service.js";
 import type { PaymentProvider } from "./billing/payment-provider.js";
 import { SendAuthorizationService } from "./services/send-authorization-service.js";
+import { verifyStaffToken } from "./security/staff-authorization.js";
+import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "./incidents/public-incident-notification.js";
 
 const app = express();
 const storage = new MemoryStorage();
 const service = new TransferService(storage);
 const signingSecret = process.env.TOKEN_SIGNING_SECRET ?? "development-only-secret";
+const staffSigningSecret = process.env.STAFF_SIGNING_SECRET ?? "development-staff-secret";
 const recipientAccess = new RecipientAccessService(signingSecret);
 const licenses = new MemoryLicenseRepository();
 const unavailablePayments: PaymentProvider = {
@@ -76,11 +79,14 @@ app.get("/v1/transfers/:id", (req, res) => {
   catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" }); }
 });
 
-app.get("/v1/transfers/:id/integrity-violations", (req, res) => {
+app.get("/v1/staff/transfers/:id/integrity-violations", (req, res) => {
   try {
-    res.json({ transferId: req.params.id, violations: service.integrityViolations(req.params.id) });
-  } catch (error) {
-    res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" });
+    const authorization = req.header("authorization") ?? "";
+    const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+    const staff = verifyStaffToken(token, staffSigningSecret);
+    res.json({ audience: "staff-only", staffRole: staff.role, transferId: req.params.id, violations: service.integrityViolations(req.params.id) });
+  } catch {
+    res.status(403).json({ error: "STAFF_AUTHORIZATION_REQUIRED" });
   }
 });
 
@@ -97,7 +103,7 @@ app.post("/v1/transfers/:id/complete", async (req, res) => {
       recipientAccess: `/v1/transfers/${session.id}/download?token=${downloadToken}`
     });
   } catch (error) {
-    res.status(409).json({ error: error instanceof Error ? error.message : "COMPLETE_FAILED" });
+    res.status(409).json({ error: PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE });
   }
 });
 
@@ -109,7 +115,7 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
     const object = await storage.openForDownload(req.params.id);
     res.json({ transferId: req.params.id, objectKey: object.objectKey, notice: recipientExpirationNotice });
   } catch (error) {
-    res.status(403).json({ error: error instanceof Error ? error.message : "ACCESS_DENIED" });
+    res.status(403).json({ error: PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE });
   }
 });
 
