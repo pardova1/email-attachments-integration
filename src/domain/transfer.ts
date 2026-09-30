@@ -18,7 +18,9 @@ export interface TransferSession {
   receivedParts: Set<number>;
   status: TransferStatus;
   createdAt: Date;
-  expiresAt: Date;
+  uploadExpiresAt: Date;
+  downloadAvailableAt: Date | null;
+  downloadExpiresAt: Date | null;
   senderExpirationConfirmed: boolean;
 }
 
@@ -39,7 +41,9 @@ export function createTransfer(input: {
     totalBytes: input.totalBytes, chunkBytes: input.chunkBytes ?? DEFAULT_CHUNK_BYTES,
     originalSha256: input.originalSha256.toLowerCase(), receivedParts: new Set(),
     status: "created", createdAt,
-    expiresAt: new Date(createdAt.getTime() + TRANSFER_EXPIRATION_MS),
+    uploadExpiresAt: new Date(createdAt.getTime() + TRANSFER_EXPIRATION_MS),
+    downloadAvailableAt: null,
+    downloadExpiresAt: null,
     senderExpirationConfirmed: true
   };
 }
