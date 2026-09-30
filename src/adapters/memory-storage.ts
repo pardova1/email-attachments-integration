@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { StoragePort } from "../ports/storage.js";
 import type { TransitStorage } from "../ports/transit-storage.js";
 
@@ -14,8 +15,17 @@ export class MemoryStorage implements StoragePort, TransitStorage {
   async complete(transferId: string, totalParts: number) {
     const transfer = this.parts.get(transferId);
     if (!transfer || transfer.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
+
+    const hash = createHash("sha256");
+    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+      const part = transfer.get(partNumber);
+      if (!part) throw new Error("TRANSFER_INCOMPLETE");
+      hash.update(part);
+    }
+
+    const sha256 = hash.digest("hex");
     this.completed.add(transferId);
-    return { objectKey: `memory://${transferId}` };
+    return { objectKey: `memory://${transferId}`, sha256 };
   }
 
   async openForDownload(transferId: string) {
