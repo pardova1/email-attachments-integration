@@ -3,6 +3,11 @@ export type NotificationChannel =
   | "device-notification"
   | "email";
 
+export interface NotificationPreferences {
+  deviceNotificationsEnabled: boolean;
+  inAppNotificationsEnabled: boolean;
+}
+
 export interface NotificationMessage {
   userId: string;
   title: string;
@@ -18,7 +23,16 @@ export interface NotificationChannelAdapter {
 export class MultiChannelNotificationService {
   constructor(private readonly adapters: NotificationChannelAdapter[]) {}
 
-  async notify(notification: Omit<NotificationMessage, "channels">, channels: NotificationChannel[] = ["in-app", "device-notification", "email"]) {
+  async notifyServiceEvent(
+    notification: Omit<NotificationMessage, "channels">,
+    preferences: NotificationPreferences
+  ) {
+    // Email is mandatory for service/incident notifications and cannot be
+    // disabled by device-notification preferences.
+    const channels: NotificationChannel[] = ["email"];
+    if (preferences.inAppNotificationsEnabled) channels.push("in-app");
+    if (preferences.deviceNotificationsEnabled) channels.push("device-notification");
+
     const requested = new Set(channels);
     const results = [];
     for (const adapter of this.adapters) {
@@ -30,11 +44,10 @@ export class MultiChannelNotificationService {
         results.push({ channel: adapter.channel, delivered: false });
       }
     }
-    return results;
+    return { requiredEmail: true as const, channels, results };
   }
 }
 
-// Platform adapters map device-notification to the operating system's native
-// notification facility (Android/iOS/Windows/macOS). Browser clients may use
-// permitted web notifications. Permission must be obtained where the platform
-// requires it; email remains an independent delivery path.
+// Device notifications map to the operating system notification facility
+// (Android/iOS/Windows/macOS) and remain optional. Browser notification
+// permission is also optional. Required service email is independent.
