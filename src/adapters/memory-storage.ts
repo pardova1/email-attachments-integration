@@ -1,7 +1,9 @@
 import type { StoragePort } from "../ports/storage.js";
+import type { TransitStorage } from "../ports/transit-storage.js";
 
-export class MemoryStorage implements StoragePort {
+export class MemoryStorage implements StoragePort, TransitStorage {
   private readonly parts = new Map<string, Map<number, Buffer>>();
+  private readonly completed = new Set<string>();
 
   async putPart(transferId: string, partNumber: number, data: Buffer) {
     const transfer = this.parts.get(transferId) ?? new Map<number, Buffer>();
@@ -12,6 +14,17 @@ export class MemoryStorage implements StoragePort {
   async complete(transferId: string, totalParts: number) {
     const transfer = this.parts.get(transferId);
     if (!transfer || transfer.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
+    this.completed.add(transferId);
     return { objectKey: `memory://${transferId}` };
+  }
+
+  async openForDownload(transferId: string) {
+    if (!this.completed.has(transferId)) throw new Error("TRANSFER_NOT_READY");
+    return { objectKey: `memory://${transferId}` };
+  }
+
+  async purge(transferId: string) {
+    this.parts.delete(transferId);
+    this.completed.delete(transferId);
   }
 }
