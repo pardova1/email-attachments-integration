@@ -2,10 +2,15 @@ import express from "express";
 import { z } from "zod";
 import { MemoryStorage } from "./adapters/memory-storage.js";
 import { TransferService } from "./services/transfer-service.js";
+import { RecipientAccessService } from "./services/recipient-access.js";
 import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
+import { verifySha256 } from "./security/checksum.js";
 
 const app = express();
-const service = new TransferService(new MemoryStorage());
+const storage = new MemoryStorage();
+const service = new TransferService(storage);
+const signingSecret = process.env.TOKEN_SIGNING_SECRET ?? "development-only-secret";
+const recipientAccess = new RecipientAccessService(signingSecret);
 
 app.use(express.json({ limit: "1mb" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -37,8 +42,11 @@ app.post("/v1/transfers", (req, res) => {
 
 app.put("/v1/transfers/:id/parts/:partNumber", express.raw({ type: "*/*", limit: "70mb" }), async (req, res) => {
   try {
-    const result = await service.uploadPart(req.params.id, Number(req.params.partNumber), Buffer.from(req.body));
-    res.json(result);
+    const data = Buffer.from(req.body);
+    const checksum = req.header("x-content-sha256");
+    if (checksum) verifySha256(data, checksum);
+    const result = await service.uploadPart(req.params.id, Number(req.params.partNumber), data);
+    res.json({ ...result, checksumVerified: Boolean(checksum) });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
   }
@@ -50,8 +58,31 @@ app.get("/v1/transfers/:id", (req, res) => {
 });
 
 app.post("/v1/transfers/:id/complete", async (req, res) => {
-  try { res.json(await service.complete(req.params.id)); }
-  catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "COMPLETE_FAILED" }); }
+  try {
+    const completed = await service.complete(req.params.id);
+    const session = service.get(req.params.id);
+    const downloadToken = recipientAccess.issue(session.id, session.expiresAt);
+    res.json({
+      ...completed,
+      expiresAt: session.expiresAt,
+      recipientNotice: recipientExpirationNotice,
+      recipientAccess: `/v1/transfers/${session.id}/download?token=${downloadToken}`
+    });
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "COMPLETE_FAILED" });
+  }
+});
+
+app.get("/v1/transfers/:id/download", async (req, res) => {
+  try {
+    const token = String(req.query.token ?? "");
+    recipientAccess.verify(token, req.params.id);
+    service.get(req.params.id);
+    const object = await storage.openForDownload(req.params.id);
+    res.json({ transferId: req.params.id, objectKey: object.objectKey, notice: recipientExpirationNotice });
+  } catch (error) {
+    res.status(403).json({ error: error instanceof Error ? error.message : "ACCESS_DENIED" });
+  }
 });
 
 const port = Number(process.env.PORT ?? 3000);
