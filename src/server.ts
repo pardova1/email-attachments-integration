@@ -32,6 +32,7 @@ const createSchema = z.object({
   totalBytes: z.number().int().positive(),
   chunkBytes: z.number().int().positive().optional(),
   senderExpirationConfirmed: z.literal(true),
+  originalSha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
   userId: z.string().min(1).max(255)
 });
 
