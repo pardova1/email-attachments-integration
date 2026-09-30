@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 export const INITIAL_MAX_TRANSFER_BYTES = 500 * 1024 ** 3;
 export const DEFAULT_CHUNK_BYTES = 64 * 1024 ** 2;
 
-export type TransferStatus = "created" | "uploading" | "complete" | "expired";
+export type TransferStatus = "created" | "uploading" | "complete";
 
 export interface TransferSession {
   id: string;
@@ -14,7 +14,6 @@ export interface TransferSession {
   receivedParts: Set<number>;
   status: TransferStatus;
   createdAt: Date;
-  expiresAt: Date;
 }
 
 export function createTransfer(input: {
@@ -34,8 +33,7 @@ export function createTransfer(input: {
     chunkBytes: input.chunkBytes ?? DEFAULT_CHUNK_BYTES,
     receivedParts: new Set(),
     status: "created",
-    createdAt: new Date(),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+    createdAt: new Date()
   };
 }
 
