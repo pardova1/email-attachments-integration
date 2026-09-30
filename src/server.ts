@@ -76,6 +76,14 @@ app.get("/v1/transfers/:id", (req, res) => {
   catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" }); }
 });
 
+app.get("/v1/transfers/:id/integrity-violations", (req, res) => {
+  try {
+    res.json({ transferId: req.params.id, violations: service.integrityViolations(req.params.id) });
+  } catch (error) {
+    res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" });
+  }
+});
+
 app.post("/v1/transfers/:id/complete", async (req, res) => {
   try {
     const completed = await service.complete(req.params.id);
