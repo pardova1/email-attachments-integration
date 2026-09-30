@@ -2,13 +2,18 @@ import { createTransfer, expectedPartCount, progress, TRANSFER_EXPIRATION_MS, ty
 import { assertVerifiedExact } from "../domain/file-integrity-command.js";
 import type { StoragePort } from "../ports/storage.js";
 import { IntegrityViolationRegistry } from "../integrity/violation-registry.js";
+import { createTransferLane, type TransferLane } from "../scaling/transfer-lane.js";
 
 export class TransferService {
   private readonly sessions = new Map<string, TransferSession>();
+  private readonly lanes = new Map<string, TransferLane>();
   constructor(private readonly storage: StoragePort, private readonly violations = new IntegrityViolationRegistry()) {}
 
   create(input: { fileName: string; contentType: string; totalBytes: number; chunkBytes?: number; originalSha256: string; senderExpirationConfirmed: boolean }) {
-    const session = createTransfer(input); this.sessions.set(session.id, session); return session;
+    const session = createTransfer(input);
+    this.sessions.set(session.id, session);
+    this.lanes.set(session.id, createTransferLane(session.id));
+    return session;
   }
   get(id: string) {
     const session = this.sessions.get(id);
@@ -42,7 +47,15 @@ export class TransferService {
     session.downloadAvailableAt = downloadAvailableAt;
     session.downloadExpiresAt = new Date(downloadAvailableAt.getTime() + TRANSFER_EXPIRATION_MS);
     session.status = "complete";
+    const lane = this.lanes.get(session.id);
+    if (lane) lane.state = "complete";
     return { ...stored, status: session.status, verifiedExact: true as const, downloadAvailableAt: session.downloadAvailableAt, downloadExpiresAt: session.downloadExpiresAt };
+  }
+  lane(id: string) {
+    this.get(id);
+    const lane = this.lanes.get(id);
+    if (!lane) throw new Error("TRANSFER_LANE_NOT_FOUND");
+    return lane;
   }
   integrityViolations(id: string) {
     this.get(id);
