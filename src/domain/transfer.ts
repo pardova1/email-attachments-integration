@@ -14,6 +14,7 @@ export interface TransferSession {
   contentType: string;
   totalBytes: number;
   chunkBytes: number;
+  originalSha256: string;
   receivedParts: Set<number>;
   status: TransferStatus;
   createdAt: Date;
@@ -26,36 +27,25 @@ export function createTransfer(input: {
   contentType: string;
   totalBytes: number;
   chunkBytes?: number;
+  originalSha256: string;
   senderExpirationConfirmed: boolean;
 }): TransferSession {
   if (!input.senderExpirationConfirmed) throw new Error("EXPIRATION_CONFIRMATION_REQUIRED");
-  if (input.totalBytes <= 0 || input.totalBytes > INITIAL_MAX_TRANSFER_BYTES) {
-    throw new Error("TRANSFER_SIZE_NOT_SUPPORTED");
-  }
+  if (input.totalBytes <= 0 || input.totalBytes > INITIAL_MAX_TRANSFER_BYTES) throw new Error("TRANSFER_SIZE_NOT_SUPPORTED");
+  if (!/^[a-f0-9]{64}$/i.test(input.originalSha256)) throw new Error("INVALID_ORIGINAL_SHA256");
   const createdAt = new Date();
   return {
-    id: randomUUID(),
-    fileName: input.fileName,
-    contentType: input.contentType,
-    totalBytes: input.totalBytes,
-    chunkBytes: input.chunkBytes ?? DEFAULT_CHUNK_BYTES,
-    receivedParts: new Set(),
-    status: "created",
-    createdAt,
+    id: randomUUID(), fileName: input.fileName, contentType: input.contentType,
+    totalBytes: input.totalBytes, chunkBytes: input.chunkBytes ?? DEFAULT_CHUNK_BYTES,
+    originalSha256: input.originalSha256.toLowerCase(), receivedParts: new Set(),
+    status: "created", createdAt,
     expiresAt: new Date(createdAt.getTime() + TRANSFER_EXPIRATION_MS),
     senderExpirationConfirmed: true
   };
 }
 
-export function expectedPartCount(t: TransferSession): number {
-  return Math.ceil(t.totalBytes / t.chunkBytes);
-}
-
+export function expectedPartCount(t: TransferSession): number { return Math.ceil(t.totalBytes / t.chunkBytes); }
 export function progress(t: TransferSession) {
   const totalParts = expectedPartCount(t);
-  return {
-    receivedParts: t.receivedParts.size,
-    totalParts,
-    percent: totalParts === 0 ? 0 : Math.floor((t.receivedParts.size / totalParts) * 100)
-  };
+  return { receivedParts: t.receivedParts.size, totalParts, percent: totalParts === 0 ? 0 : Math.floor((t.receivedParts.size / totalParts) * 100) };
 }
