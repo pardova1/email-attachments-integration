@@ -44,7 +44,7 @@ app.post("/v1/transfers", async (req, res) => {
     res.status(201).json({
       id: t.id,
       chunkBytes: t.chunkBytes,
-      expiresAt: t.expiresAt,
+      uploadExpiresAt: t.uploadExpiresAt,
       senderNotice: senderExpirationNotice,
       recipientNotice: recipientExpirationNotice,
       uploadPartUrlTemplate: `/v1/transfers/${t.id}/parts/{partNumber}`
@@ -88,10 +88,11 @@ app.post("/v1/transfers/:id/complete", async (req, res) => {
   try {
     const completed = await service.complete(req.params.id);
     const session = service.get(req.params.id);
-    const downloadToken = recipientAccess.issue(session.id, session.expiresAt);
+    if (!session.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
+    const downloadToken = recipientAccess.issue(session.id, session.downloadExpiresAt);
     res.json({
       ...completed,
-      expiresAt: session.expiresAt,
+      downloadExpiresAt: session.downloadExpiresAt,
       recipientNotice: recipientExpirationNotice,
       recipientAccess: `/v1/transfers/${session.id}/download?token=${downloadToken}`
     });
