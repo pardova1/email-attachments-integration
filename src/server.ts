@@ -2,6 +2,7 @@ import express from "express";
 import { z } from "zod";
 import { MemoryStorage } from "./adapters/memory-storage.js";
 import { TransferService } from "./services/transfer-service.js";
+import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
 
 const app = express();
 const service = new TransferService(new MemoryStorage());
@@ -13,7 +14,8 @@ const createSchema = z.object({
   fileName: z.string().min(1).max(1024),
   contentType: z.string().min(1).max(255),
   totalBytes: z.number().int().positive(),
-  chunkBytes: z.number().int().positive().optional()
+  chunkBytes: z.number().int().positive().optional(),
+  senderExpirationConfirmed: z.literal(true)
 });
 
 app.post("/v1/transfers", (req, res) => {
@@ -24,6 +26,8 @@ app.post("/v1/transfers", (req, res) => {
       id: t.id,
       chunkBytes: t.chunkBytes,
       expiresAt: t.expiresAt,
+      senderNotice: senderExpirationNotice,
+      recipientNotice: recipientExpirationNotice,
       uploadPartUrlTemplate: `/v1/transfers/${t.id}/parts/{partNumber}`
     });
   } catch (error) {
