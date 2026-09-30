@@ -6,7 +6,7 @@ export class TransferService {
 
   constructor(private readonly storage: StoragePort) {}
 
-  create(input: { fileName: string; contentType: string; totalBytes: number; chunkBytes?: number }) {
+  create(input: { fileName: string; contentType: string; totalBytes: number; chunkBytes?: number; senderExpirationConfirmed: boolean }) {
     const session = createTransfer(input);
     this.sessions.set(session.id, session);
     return session;
