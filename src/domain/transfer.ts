@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 
 export const INITIAL_MAX_TRANSFER_BYTES = 500 * 1024 ** 3;
 export const DEFAULT_CHUNK_BYTES = 64 * 1024 ** 2;
-export const TRANSFER_EXPIRATION_MS = 24 * 60 * 60 * 1000;
+export const ACTIVE_TRANSFER_EXPIRATION_HOURS = 4;
+export const TRANSFER_EXPIRATION_MS = ACTIVE_TRANSFER_EXPIRATION_HOURS * 60 * 60 * 1000;
+export const FUTURE_EXPIRATION_OPTIONS_HOURS = [24] as const;
 
 export type TransferStatus = "created" | "uploading" | "complete" | "expired";
 
@@ -16,6 +18,7 @@ export interface TransferSession {
   status: TransferStatus;
   createdAt: Date;
   expiresAt: Date;
+  senderExpirationConfirmed: boolean;
 }
 
 export function createTransfer(input: {
@@ -23,7 +26,9 @@ export function createTransfer(input: {
   contentType: string;
   totalBytes: number;
   chunkBytes?: number;
+  senderExpirationConfirmed: boolean;
 }): TransferSession {
+  if (!input.senderExpirationConfirmed) throw new Error("EXPIRATION_CONFIRMATION_REQUIRED");
   if (input.totalBytes <= 0 || input.totalBytes > INITIAL_MAX_TRANSFER_BYTES) {
     throw new Error("TRANSFER_SIZE_NOT_SUPPORTED");
   }
@@ -37,7 +42,8 @@ export function createTransfer(input: {
     receivedParts: new Set(),
     status: "created",
     createdAt,
-    expiresAt: new Date(createdAt.getTime() + TRANSFER_EXPIRATION_MS)
+    expiresAt: new Date(createdAt.getTime() + TRANSFER_EXPIRATION_MS),
+    senderExpirationConfirmed: true
   };
 }
 
