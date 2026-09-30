@@ -5,12 +5,23 @@ import { TransferService } from "./services/transfer-service.js";
 import { RecipientAccessService } from "./services/recipient-access.js";
 import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
 import { verifySha256 } from "./security/checksum.js";
+import { MemoryLicenseRepository } from "./adapters/memory-license-repository.js";
+import { EntitlementService } from "./billing/entitlement-service.js";
+import type { PaymentProvider } from "./billing/payment-provider.js";
+import { SendAuthorizationService } from "./services/send-authorization-service.js";
 
 const app = express();
 const storage = new MemoryStorage();
 const service = new TransferService(storage);
 const signingSecret = process.env.TOKEN_SIGNING_SECRET ?? "development-only-secret";
 const recipientAccess = new RecipientAccessService(signingSecret);
+const licenses = new MemoryLicenseRepository();
+const unavailablePayments: PaymentProvider = {
+  async createCheckout() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); },
+  async verifyPayment() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
+};
+const entitlements = new EntitlementService(unavailablePayments, licenses);
+const authorizedSends = new SendAuthorizationService(entitlements, service);
 
 app.use(express.json({ limit: "1mb" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -20,13 +31,15 @@ const createSchema = z.object({
   contentType: z.string().min(1).max(255),
   totalBytes: z.number().int().positive(),
   chunkBytes: z.number().int().positive().optional(),
-  senderExpirationConfirmed: z.literal(true)
+  senderExpirationConfirmed: z.literal(true),
+  userId: z.string().min(1).max(255)
 });
 
-app.post("/v1/transfers", (req, res) => {
+app.post("/v1/transfers", async (req, res) => {
   try {
     const input = createSchema.parse(req.body);
-    const t = service.create(input);
+    const { userId, ...transferInput } = input;
+    const t = await authorizedSends.createForValidUser(userId, transferInput);
     res.status(201).json({
       id: t.id,
       chunkBytes: t.chunkBytes,
@@ -36,7 +49,12 @@ app.post("/v1/transfers", (req, res) => {
       uploadPartUrlTemplate: `/v1/transfers/${t.id}/parts/{partNumber}`
     });
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "INVALID_REQUEST" });
+    const message = error instanceof Error ? error.message : "INVALID_REQUEST";
+    const status = message === "ACTIVE_LICENSE_REQUIRED" ? 403 : 400;
+    res.status(status).json({
+      error: message,
+      ...(message === "ACTIVE_LICENSE_REQUIRED" ? { note: "Please renew your service." } : {})
+    });
   }
 });
 
