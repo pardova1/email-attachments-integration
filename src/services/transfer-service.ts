@@ -15,10 +15,6 @@ export class TransferService {
   get(id: string) {
     const session = this.sessions.get(id);
     if (!session) throw new Error("TRANSFER_NOT_FOUND");
-    if (session.expiresAt.getTime() <= Date.now()) {
-      session.status = "expired";
-      throw new Error("TRANSFER_EXPIRED");
-    }
     return session;
   }
 
@@ -45,6 +41,6 @@ export class TransferService {
 
   status(id: string) {
     const session = this.get(id);
-    return { id, status: session.status, ...progress(session), expiresAt: session.expiresAt };
+    return { id, status: session.status, ...progress(session) };
   }
 }
