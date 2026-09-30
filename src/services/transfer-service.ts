@@ -1,4 +1,4 @@
-import { createTransfer, expectedPartCount, progress, type TransferSession } from "../domain/transfer.js";
+import { createTransfer, expectedPartCount, progress, TRANSFER_EXPIRATION_MS, type TransferSession } from "../domain/transfer.js";
 import { assertVerifiedExact } from "../domain/file-integrity-command.js";
 import type { StoragePort } from "../ports/storage.js";
 import { IntegrityViolationRegistry } from "../integrity/violation-registry.js";
@@ -13,7 +13,8 @@ export class TransferService {
   get(id: string) {
     const session = this.sessions.get(id);
     if (!session) throw new Error("TRANSFER_NOT_FOUND");
-    if (session.expiresAt.getTime() <= Date.now()) { session.status = "expired"; throw new Error("TRANSFER_EXPIRED"); }
+    const activeExpiry = session.status === "complete" ? session.downloadExpiresAt : session.uploadExpiresAt;
+    if (activeExpiry && activeExpiry.getTime() <= Date.now()) { session.status = "expired"; throw new Error("TRANSFER_EXPIRED"); }
     return session;
   }
   async uploadPart(id: string, partNumber: number, data: Buffer) {
@@ -37,12 +38,15 @@ export class TransferService {
       });
       throw new Error(`FILE_INTEGRITY_COMMAND_VIOLATION:${violation.violationId}`);
     }
+    const downloadAvailableAt = new Date();
+    session.downloadAvailableAt = downloadAvailableAt;
+    session.downloadExpiresAt = new Date(downloadAvailableAt.getTime() + TRANSFER_EXPIRATION_MS);
     session.status = "complete";
-    return { ...stored, status: session.status, verifiedExact: true as const };
+    return { ...stored, status: session.status, verifiedExact: true as const, downloadAvailableAt: session.downloadAvailableAt, downloadExpiresAt: session.downloadExpiresAt };
   }
   integrityViolations(id: string) {
     this.get(id);
     return this.violations.forTransfer(id);
   }
-  status(id: string) { const session = this.get(id); return { id, status: session.status, ...progress(session), expiresAt: session.expiresAt }; }
+  status(id: string) { const session = this.get(id); return { id, status: session.status, ...progress(session), uploadExpiresAt: session.uploadExpiresAt, downloadAvailableAt: session.downloadAvailableAt, downloadExpiresAt: session.downloadExpiresAt }; }
 }
