@@ -29,7 +29,47 @@ function score(area: StorageArea) {
   return statusPenalty + area.latencyMs + area.errorRate * 10_000;
 }
 
+export interface StorageAssignment {
+  transferId: string;
+  laneId: string;
+  route: StorageRoute;
+  activeStorageId: string;
+  mode: "primary" | "backup-recovery";
+}
+
 export class StorageDirectorAgent {
+  private readonly assignments = new Map<string, StorageAssignment>();
+
+  organizeTransfer(input: { transferId: string; laneId: string; requiredBytes: number; areas: StorageArea[] }) {
+    if (this.assignments.has(input.transferId)) return this.assignments.get(input.transferId)!;
+    const route = this.selectRoute(input.areas, input.requiredBytes);
+    const assignment: StorageAssignment = {
+      transferId: input.transferId,
+      laneId: input.laneId,
+      route,
+      activeStorageId: route.primary.id,
+      mode: "primary"
+    };
+    this.assignments.set(input.transferId, assignment);
+    return assignment;
+  }
+
+  assignment(transferId: string) {
+    return this.assignments.get(transferId) ?? null;
+  }
+
+  analyzeAndCorrect(transferId: string) {
+    const assignment = this.assignments.get(transferId);
+    if (!assignment) throw new Error("STORAGE_ASSIGNMENT_NOT_FOUND");
+    if (assignment.route.primary.operatingStatus === "operating-normally") {
+      return { action: "continue-primary" as const, assignment };
+    }
+    const recovery = this.activateBackup(assignment.route);
+    assignment.activeStorageId = recovery.activeStorage.id;
+    assignment.mode = "backup-recovery";
+    return { action: "backup-automatically-activated" as const, assignment, stages: recovery.stages };
+  }
+
   selectRoute(areas: StorageArea[], requiredBytes: number): StorageRoute {
     const eligible = areas
       .filter(a => a.availableBytes >= requiredBytes && a.acceptsTransfer && a.operatingStatus !== "unavailable")
