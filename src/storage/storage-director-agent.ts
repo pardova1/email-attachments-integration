@@ -8,6 +8,7 @@ export interface StorageArea {
   latencyMs: number;
   errorRate: number;
   acceptsTransfer: boolean;
+  estimatedThroughputBytesPerSecond?: number;
 }
 
 export interface StorageRoute {
@@ -23,10 +24,15 @@ export type FailoverStage =
   | "other-lanes-remain-unaffected"
   | "verified-exact";
 
-function score(area: StorageArea) {
+function estimatedCompletionMs(area: StorageArea, requiredBytes: number) {
+  const throughput = area.estimatedThroughputBytesPerSecond ?? 1;
+  return area.latencyMs + (requiredBytes / Math.max(throughput, 1)) * 1000;
+}
+
+function score(area: StorageArea, requiredBytes = 0) {
   if (!area.acceptsTransfer || area.operatingStatus === "unavailable") return Number.POSITIVE_INFINITY;
   const statusPenalty = area.operatingStatus === "degraded" ? 100_000 : 0;
-  return statusPenalty + area.latencyMs + area.errorRate * 10_000;
+  return statusPenalty + estimatedCompletionMs(area, requiredBytes) + area.errorRate * 10_000;
 }
 
 export interface StorageAssignment {
@@ -73,7 +79,7 @@ export class StorageDirectorAgent {
   selectRoute(areas: StorageArea[], requiredBytes: number): StorageRoute {
     const eligible = areas
       .filter(a => a.availableBytes >= requiredBytes && a.acceptsTransfer && a.operatingStatus !== "unavailable")
-      .sort((a, b) => score(a) - score(b));
+      .sort((a, b) => score(a, requiredBytes) - score(b, requiredBytes));
 
     if (eligible.length < 2) throw new Error("INSUFFICIENT_STORAGE_REDUNDANCY");
     return { primary: eligible[0], backup: eligible[1] };
