@@ -1,4 +1,4 @@
-export type PersistedTransferStatus = "uploading" | "recovering" | "verified" | "available" | "expired";
+export type PersistedTransferStatus = "created" | "uploading" | "recovering" | "verified" | "available" | "expired";
 
 export interface PersistedTransferState {
   transferId: string;
@@ -6,9 +6,14 @@ export interface PersistedTransferState {
   laneId: string;
   /** Reference to protected KMS/HSM material. Never persist the raw encryption key here. */
   keyReference?: string;
-  status: PersistedTransferStatus;
-  originalSha256: string;
+  fileName: string;
+  contentType: string;
   totalBytes: number;
+  chunkBytes: number;
+  originalSha256: string;
+  senderExpirationConfirmed: boolean;
+  createdAt: string;
+  status: PersistedTransferStatus;
   confirmedParts: number[];
   partSha256: Record<number, string>;
   activeStorageId?: string;
