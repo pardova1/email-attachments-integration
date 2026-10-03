@@ -2,13 +2,18 @@ export type PersistedTransferStatus = "uploading" | "recovering" | "verified" | 
 
 export interface PersistedTransferState {
   transferId: string;
+  /** Canonical private Lane/Tunnel identity. It must survive worker/server replacement. */
   laneId: string;
+  /** Reference to protected KMS/HSM material. Never persist the raw encryption key here. */
+  keyReference?: string;
   status: PersistedTransferStatus;
   originalSha256: string;
   totalBytes: number;
   confirmedParts: number[];
   partSha256: Record<number, string>;
   activeStorageId?: string;
+  /** Last verified resumable byte/part checkpoint; unverified progress must never be trusted. */
+  lastVerifiedPart?: number;
   uploadExpiresAt: string;
   downloadAvailableAt?: string;
   downloadExpiresAt?: string;
