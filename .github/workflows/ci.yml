@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  build-test-security:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,5 +25,18 @@ jobs:
         run: npm ci
       - name: Compile
         run: npm run build
-      - name: Test
+      - name: Full test suite
         run: npm test
+      - name: Permanent-rule regression gates
+        run: >
+          node --import tsx --test
+          test/authoritative-download-window.test.ts
+          test/recipient-time-window-model.test.ts
+          test/recipient-access.test.ts
+          test/lane-access-guard.test.ts
+          test/transfer-crypto-context.test.ts
+          test/private-lane-lifecycle-coordinator.test.ts
+          test/integrity-recovery-policy.test.ts
+          test/recovery-chain-verifier.test.ts
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
