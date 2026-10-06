@@ -28,10 +28,13 @@ export class MemoryStorage implements StoragePort, TransitStorage {
     return { objectKey: `memory://${transferId}`, sha256 };
   }
 
-  async openForDownload(transferId: string) {
+  async readPart(transferId: string, partNumber: number) {
     if (!this.completed.has(transferId)) throw new Error("TRANSFER_NOT_READY");
-    return { objectKey: `memory://${transferId}` };
+    const part = this.parts.get(transferId)?.get(partNumber);
+    if (!part) throw new Error("TRANSFER_STORAGE_READ_FAILED");
+    return Buffer.from(part);
   }
+
 
   async purge(transferId: string) {
     this.parts.delete(transferId);
