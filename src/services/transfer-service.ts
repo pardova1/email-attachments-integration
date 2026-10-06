@@ -56,7 +56,11 @@ export class TransferService {
   get(id: string) {
     const session = this.requireCached(id);
     const activeExpiry = session.status === "complete" ? session.downloadExpiresAt : session.uploadExpiresAt;
-    if (activeExpiry && activeExpiry.getTime() <= Date.now()) { session.status = "expired"; throw new Error("TRANSFER_EXPIRED"); }
+    if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
+      session.status = "expired";
+      void this.durable?.expire(id);
+      throw new Error("TRANSFER_EXPIRED");
+    }
     return session;
   }
 
