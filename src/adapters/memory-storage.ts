@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { StoragePort } from "../ports/storage.js";
-import type { TransitStorage } from "../ports/transit-storage.js";
 
-export class MemoryStorage implements StoragePort, TransitStorage {
+export class MemoryStorage implements StoragePort {
   private readonly parts = new Map<string, Map<number, Buffer>>();
   private readonly completed = new Set<string>();
 
