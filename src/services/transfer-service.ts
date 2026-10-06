@@ -48,6 +48,14 @@ export class TransferService {
   async restore(id: string) {
     if (!this.durable) throw new Error("TRANSFER_STATE_REPOSITORY_REQUIRED");
     const restored = await this.durable.restore(id);
+    const activeExpiry = restored.session.status === "complete"
+      ? restored.session.downloadExpiresAt
+      : restored.session.uploadExpiresAt;
+    if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
+      restored.session.status = "expired";
+      await this.durable.expire(id);
+      throw new Error("TRANSFER_EXPIRED");
+    }
     this.sessions.set(id, restored.session);
     this.lanes.set(id, restored.lane);
     return restored.session;
@@ -58,10 +66,18 @@ export class TransferService {
     const activeExpiry = session.status === "complete" ? session.downloadExpiresAt : session.uploadExpiresAt;
     if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
       session.status = "expired";
-      void this.durable?.expire(id);
       throw new Error("TRANSFER_EXPIRED");
     }
     return session;
+  }
+
+  async expireIfNeeded(id: string) {
+    const session = this.requireCached(id);
+    const activeExpiry = session.status === "complete" ? session.downloadExpiresAt : session.uploadExpiresAt;
+    if (!activeExpiry || activeExpiry.getTime() > Date.now()) return false;
+    session.status = "expired";
+    if (this.durable) await this.durable.expire(id);
+    return true;
   }
 
   async uploadPart(id: string, partNumber: number, data: Buffer) {
