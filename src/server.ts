@@ -140,7 +140,8 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
     res.setHeader("Content-Length", String(session.totalBytes));
     const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
     for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-      res.write(await storage.readPart(req.params.id, partNumber));
+      const part = await storage.readPart(req.params.id, partNumber);
+      if (!res.write(part)) await new Promise<void>(resolve => res.once("drain", resolve));
     }
     res.end();
   } catch (error) {
