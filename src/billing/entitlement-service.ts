@@ -1,19 +1,16 @@
-import { ANNUAL_LICENSE_USD_CENTS, createAnnualLicense, isLicenseActive } from "./annual-license.js";
+import { createAnnualLicense, isLicenseActive, planForAmount } from "./annual-license.js";
 import type { LicenseRepository } from "./license-repository.js";
 import type { PaymentProvider } from "./payment-provider.js";
 
 export class EntitlementService {
-  constructor(
-    private readonly payments: PaymentProvider,
-    private readonly licenses: LicenseRepository
-  ) {}
+  constructor(private readonly payments: PaymentProvider, private readonly licenses: LicenseRepository) {}
 
   async activateFromPayment(providerReference: string) {
     const payment = await this.payments.verifyPayment(providerReference);
     if (payment.status !== "paid") throw new Error("PAYMENT_NOT_COMPLETED");
-    if (payment.amountUsdCents !== ANNUAL_LICENSE_USD_CENTS) throw new Error("INVALID_LICENSE_AMOUNT");
-
-    const license = createAnnualLicense(payment.userId, payment.paidAt);
+    const plan = planForAmount(payment.amountUsdCents);
+    const existing = await this.licenses.getByUserId(payment.userId);
+    const license = createAnnualLicense(payment.userId, payment.paidAt, plan, existing);
     await this.licenses.save(license);
     return license;
   }
