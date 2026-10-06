@@ -54,6 +54,7 @@ export class TransferService {
     if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
       restored.session.status = "expired";
       await this.durable.expire(id);
+      await this.storage.purge(id);
       throw new Error("TRANSFER_EXPIRED");
     }
     this.sessions.set(id, restored.session);
@@ -77,6 +78,7 @@ export class TransferService {
     if (!activeExpiry || activeExpiry.getTime() > Date.now()) return false;
     session.status = "expired";
     if (this.durable) await this.durable.expire(id);
+    await this.storage.purge(id);
     return true;
   }
 
