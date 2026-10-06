@@ -3,8 +3,11 @@ import test from "node:test";
 import { MemoryTransferStateRepository } from "../src/adapters/memory-transfer-state-repository.js";
 
 const state = {
-  transferId:"t1", laneId:"l1", status:"uploading" as const, originalSha256:"abc",
-  totalBytes:500_000_000_000, confirmedParts:[1], partSha256:{1:"p1"},
+  transferId:"t1", laneId:"l1", status:"uploading" as const,
+  fileName:"large-video.mp4", contentType:"video/mp4", chunkBytes:64*1024**2,
+  originalSha256:"a".repeat(64), senderExpirationConfirmed:true,
+  createdAt:"2026-10-02T20:00:00.000Z", totalBytes:500_000_000_000,
+  confirmedParts:[1], partSha256:{1:"p1"},
   uploadExpiresAt:"2026-10-03T00:00:00.000Z", updatedAt:"2026-10-02T20:00:00.000Z", version:1
 };
 
