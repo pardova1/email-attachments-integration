@@ -1,26 +1,19 @@
-import { ANNUAL_LICENSE_USD_CENTS, createAnnualLicense, isLicenseActive } from "./annual-license.js";
+import { createAnnualLicense, isLicenseActive, planForAmount, type LicensePlan } from "./annual-license.js";
 import type { LicenseRepository } from "./license-repository.js";
 import type { PaymentProvider } from "./payment-provider.js";
-
 export class EntitlementService {
-  constructor(
-    private readonly payments: PaymentProvider,
-    private readonly licenses: LicenseRepository
-  ) {}
-
-  async activateFromPayment(providerReference: string) {
-    const payment = await this.payments.verifyPayment(providerReference);
-    if (payment.status !== "paid") throw new Error("PAYMENT_NOT_COMPLETED");
-    if (payment.amountUsdCents !== ANNUAL_LICENSE_USD_CENTS) throw new Error("INVALID_LICENSE_AMOUNT");
-
-    const license = createAnnualLicense(payment.userId, payment.paidAt);
-    await this.licenses.save(license);
-    return license;
+  constructor(private readonly payments:PaymentProvider,private readonly licenses:LicenseRepository){}
+  async activateFromPayment(providerReference:string,licenseName?:string){
+    const payment=await this.payments.verifyPayment(providerReference);
+    if(payment.status!=="paid") throw new Error("PAYMENT_NOT_COMPLETED");
+    const plan=planForAmount(payment.amountUsdCents);
+    const existing=await this.licenses.getByUserIdAndPlan(payment.userId,plan);
+    const license=createAnnualLicense(payment.userId,payment.paidAt,plan,existing,licenseName);
+    await this.licenses.save(license); return license;
   }
-
-  async requireActive(userId: string, now = new Date()) {
-    const license = await this.licenses.getByUserId(userId);
-    if (!license || !isLicenseActive(license, now)) throw new Error("ACTIVE_LICENSE_REQUIRED");
-    return license;
+  async requireActive(userId:string,now=new Date(),plan?:LicensePlan){
+    const candidates=plan ? [await this.licenses.getByUserIdAndPlan(userId,plan)] : await this.licenses.listByUserId(userId);
+    const license=candidates.find(x=>x&&isLicenseActive(x,now));
+    if(!license) throw new Error("ACTIVE_LICENSE_REQUIRED"); return license;
   }
 }
