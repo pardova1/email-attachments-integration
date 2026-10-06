@@ -86,8 +86,8 @@ app.put("/v1/transfers/:id/parts/:partNumber", express.raw({ type: "*/*", limit:
   }
 });
 
-app.get("/v1/transfers/:id", (req, res) => {
-  try { res.json(service.status(req.params.id)); }
+app.get("/v1/transfers/:id", async (req, res) => {
+  try { await service.ensureLoaded(req.params.id); res.json(service.status(req.params.id)); }
   catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" }); }
 });
 
@@ -123,7 +123,7 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
   try {
     const token = String(req.query.token ?? "");
     recipientAccess.verify(token, req.params.id);
-    service.get(req.params.id);
+    await service.ensureLoaded(req.params.id);
     const object = await storage.openForDownload(req.params.id);
     res.json({ transferId: req.params.id, objectKey: object.objectKey, notice: recipientExpirationNotice });
   } catch (error) {
