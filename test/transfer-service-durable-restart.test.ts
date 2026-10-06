@@ -30,6 +30,8 @@ test("TransferService survives process replacement without changing lane or expi
  await replacement.uploadPart(transfer.id,2,bytes.subarray(5));
  const completed=await replacement.complete(transfer.id);
  assert.equal(completed.verifiedExact,true);
+ assert.ok(completed.downloadAvailableAt);
+ assert.ok(completed.downloadExpiresAt);
  assert.equal(completed.downloadExpiresAt.getTime()-completed.downloadAvailableAt.getTime(),4*60*60*1000);
 
  const afterCompletion=new TransferService(storage,undefined,repository);
