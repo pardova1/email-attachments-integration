@@ -42,5 +42,6 @@ jobs:
           test/transfer-state-mapper.test.ts
           test/durable-transfer-state-service.test.ts
           test/transfer-service-durable-restart.test.ts
+          test/transfer-expiration-persistence.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
