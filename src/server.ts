@@ -16,6 +16,7 @@ import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "./incidents/public-inciden
 import { MemoryTransferStateRepository } from "./adapters/memory-transfer-state-repository.js";
 import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-state-repository.js";
 import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
+import { requireProductionSecret } from "./config/production-secrets.js";
 
 const app = express();
 const storage = createStorage();
@@ -37,8 +38,8 @@ function createTransferStateRepository(): TransferStateRepository {
   if (process.env.NODE_ENV === "production") throw new Error("DURABLE_TRANSFER_STATE_NOT_CONFIGURED");
   return new MemoryTransferStateRepository();
 }
-const signingSecret = process.env.TOKEN_SIGNING_SECRET ?? "development-only-secret";
-const staffSigningSecret = process.env.STAFF_SIGNING_SECRET ?? "development-staff-secret";
+const signingSecret = requireProductionSecret("TOKEN_SIGNING_SECRET", "development-only-secret");
+const staffSigningSecret = requireProductionSecret("STAFF_SIGNING_SECRET", "development-staff-secret");
 const recipientAccess = new RecipientAccessService(signingSecret);
 const licenses = new MemoryLicenseRepository();
 const unavailablePayments: PaymentProvider = {
