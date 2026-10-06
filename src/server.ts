@@ -19,6 +19,7 @@ import { MemoryTransferStateRepository } from "./adapters/memory-transfer-state-
 import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-state-repository.js";
 import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
 import { requireProductionSecret } from "./config/production-secrets.js";
+import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenticator.js";
 
 const app = express();
 const storage = createStorage();
@@ -58,6 +59,10 @@ const unavailablePayments: PaymentProvider = {
 };
 const entitlements = new EntitlementService(unavailablePayments, licenses);
 const authorizedSends = new SendAuthorizationService(entitlements, service);
+const senderAuthenticator = new SupabaseSenderAuthenticator(
+  process.env.SUPABASE_URL ?? "",
+  process.env.SUPABASE_PUBLISHABLE_KEY ?? ""
+);
 
 app.use(express.json({ limit: "1mb" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -68,15 +73,14 @@ const createSchema = z.object({
   totalBytes: z.number().int().positive(),
   chunkBytes: z.number().int().positive().optional(),
   senderExpirationConfirmed: z.literal(true),
-  originalSha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
-  userId: z.string().min(1).max(255)
+  originalSha256: z.string().regex(/^[a-fA-F0-9]{64}$/)
 });
 
 app.post("/v1/transfers", async (req, res) => {
   try {
     const input = createSchema.parse(req.body);
-    const { userId, ...transferInput } = input;
-    const t = await authorizedSends.createForValidUser(userId, transferInput);
+    const sender = await senderAuthenticator.authenticate(req.header("authorization"));
+    const t = await authorizedSends.createForValidUser(sender.userId, input);
     res.status(201).json({
       id: t.id,
       chunkBytes: t.chunkBytes,
@@ -87,7 +91,7 @@ app.post("/v1/transfers", async (req, res) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const status = message === "ACTIVE_LICENSE_REQUIRED" ? 403 : 400;
+    const status = message === "SENDER_AUTHENTICATION_REQUIRED" ? 401 : message === "ACTIVE_LICENSE_REQUIRED" ? 403 : 400;
     res.status(status).json({
       error: message,
       ...(message === "ACTIVE_LICENSE_REQUIRED" ? { note: "Please renew your service." } : {})
