@@ -1,0 +1,6 @@
+import assert from "node:assert/strict"; import test from "node:test";
+import { FinancialOperationsComplianceAgent } from "../src/operations/financial-operations-compliance-agent.js";
+const a=new FinancialOperationsComplianceAgent();
+test("fully compliant verified payment permits entitlement and confirmation",()=>{const r=a.assess({paymentVerified:true,licenseActivated:true,idempotencyConfirmed:true,billingCompatible:true,entitlementCompatible:true,notificationCompatible:true});assert.equal(r.health,"healthy");assert.equal(r.allowEntitlement,true);assert.equal(r.action,"confirm-purchase");});
+test("failed payment never grants entitlement and requests customer failure notice",()=>{const r=a.assess({paymentVerified:false,licenseActivated:false,idempotencyConfirmed:true,billingCompatible:true,entitlementCompatible:true,notificationCompatible:true});assert.equal(r.allowEntitlement,false);assert.equal(r.action,"notify-payment-failure");});
+test("cross-system incompatibility blocks entitlement and requires analysis and repair",()=>{const r=a.assess({paymentVerified:true,licenseActivated:true,idempotencyConfirmed:true,billingCompatible:true,entitlementCompatible:false,notificationCompatible:true});assert.equal(r.allowEntitlement,false);assert.equal(r.action,"analyze-and-repair");assert.deepEqual(r.issues,["ENTITLEMENT_INCOMPATIBLE"]);});
