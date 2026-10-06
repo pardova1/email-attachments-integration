@@ -10,7 +10,7 @@ export class SupabaseStorage implements StoragePort {
   }
   async putPart(transferId: string, partNumber: number, data: Buffer) {
     const response = await fetch(this.objectUrl(transferId, partNumber), {
-      method:"POST", headers:{...this.headers,"Content-Type":"application/octet-stream","x-upsert":"true"}, body:data
+      method:"POST", headers:{...this.headers,"Content-Type":"application/octet-stream","x-upsert":"true"}, body:new Uint8Array(data)
     });
     if (!response.ok) throw new Error("TRANSFER_STORAGE_WRITE_FAILED");
   }
