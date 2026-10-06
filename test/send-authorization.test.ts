@@ -17,6 +17,7 @@ const input = {
   fileName: "large-video.mp4",
   contentType: "video/mp4",
   totalBytes: 1024,
+  originalSha256: "a".repeat(64),
   senderExpirationConfirmed: true as const
 };
 
