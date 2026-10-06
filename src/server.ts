@@ -18,7 +18,7 @@ import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "./incidents/public-inciden
 import { MemoryTransferStateRepository } from "./adapters/memory-transfer-state-repository.js";
 import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-state-repository.js";
 import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
-import { requireProductionSecret } from "./config/production-secrets.js";
+import { requireProductionConfig, requireProductionSecret } from "./config/production-secrets.js";
 import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenticator.js";
 
 const app = express();
@@ -60,8 +60,8 @@ const unavailablePayments: PaymentProvider = {
 const entitlements = new EntitlementService(unavailablePayments, licenses);
 const authorizedSends = new SendAuthorizationService(entitlements, service);
 const senderAuthenticator = new SupabaseSenderAuthenticator(
-  process.env.SUPABASE_URL ?? "",
-  process.env.SUPABASE_PUBLISHABLE_KEY ?? ""
+  requireProductionConfig("SUPABASE_URL", "http://localhost:54321"),
+  requireProductionSecret("SUPABASE_PUBLISHABLE_KEY", "development-publishable-key")
 );
 
 app.use(express.json({ limit: "1mb" }));
