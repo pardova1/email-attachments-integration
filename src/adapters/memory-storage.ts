@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { StoragePort } from "../ports/storage.js";
-import type { TransitStorage } from "../ports/transit-storage.js";
 
-export class MemoryStorage implements StoragePort, TransitStorage {
+export class MemoryStorage implements StoragePort {
   private readonly parts = new Map<string, Map<number, Buffer>>();
   private readonly completed = new Set<string>();
 
@@ -28,10 +27,13 @@ export class MemoryStorage implements StoragePort, TransitStorage {
     return { objectKey: `memory://${transferId}`, sha256 };
   }
 
-  async openForDownload(transferId: string) {
+  async readPart(transferId: string, partNumber: number) {
     if (!this.completed.has(transferId)) throw new Error("TRANSFER_NOT_READY");
-    return { objectKey: `memory://${transferId}` };
+    const part = this.parts.get(transferId)?.get(partNumber);
+    if (!part) throw new Error("TRANSFER_STORAGE_READ_FAILED");
+    return Buffer.from(part);
   }
+
 
   async purge(transferId: string) {
     this.parts.delete(transferId);
