@@ -1,0 +1,5 @@
+import assert from "node:assert/strict"; import test from "node:test"; import { createHash } from "node:crypto";
+import { MemoryStorage } from "../src/adapters/memory-storage.js"; import { VerifiedDownloadService } from "../src/services/verified-download-service.js";
+const h=(b:Buffer)=>createHash("sha256").update(b).digest("hex");
+test("download-time verifier returns exact stored parts only when whole-file SHA matches",async()=>{const s=new MemoryStorage();await s.putPart("t",1,Buffer.from("abc"));await s.putPart("t",2,Buffer.from("def"));await s.complete("t",2);const parts=await new VerifiedDownloadService(s).readVerified("t",2,h(Buffer.from("abcdef")));assert.equal(Buffer.concat(parts).toString(),"abcdef");});
+test("download-time verifier blocks corrupted stored bytes",async()=>{const s=new MemoryStorage();await s.putPart("t",1,Buffer.from("altered"));await s.complete("t",1);await assert.rejects(()=>new VerifiedDownloadService(s).readVerified("t",1,h(Buffer.from("original"))),/FILE_INTEGRITY_COMMAND_VIOLATION/);});
