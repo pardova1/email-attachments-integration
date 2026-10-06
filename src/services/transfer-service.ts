@@ -80,8 +80,13 @@ export class TransferService {
     return true;
   }
 
+  async ensureLoaded(id: string) {
+    if (!this.sessions.has(id)) await this.restore(id);
+    return this.get(id);
+  }
+
   async uploadPart(id: string, partNumber: number, data: Buffer) {
-    const session = this.get(id); const totalParts = expectedPartCount(session);
+    const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > totalParts) throw new Error("INVALID_PART_NUMBER");
     await this.storage.putPart(id, partNumber, data);
     session.receivedParts.add(partNumber); session.status = "uploading";
@@ -90,7 +95,7 @@ export class TransferService {
   }
 
   async complete(id: string) {
-    const session = this.get(id); const totalParts = expectedPartCount(session);
+    const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
     if (session.receivedParts.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
     const stored = await this.storage.complete(id, totalParts);
     try {
