@@ -1,6 +1,8 @@
 import express from "express";
 import { z } from "zod";
 import { MemoryStorage } from "./adapters/memory-storage.js";
+import { SupabaseStorage } from "./adapters/supabase-storage.js";
+import type { StoragePort } from "./ports/storage.js";
 import { TransferService } from "./services/transfer-service.js";
 import { RecipientAccessService } from "./services/recipient-access.js";
 import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
@@ -16,9 +18,17 @@ import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-st
 import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
 
 const app = express();
-const storage = new MemoryStorage();
+const storage = createStorage();
 const transferStateRepository = createTransferStateRepository();
 const service = new TransferService(storage, undefined, transferStateRepository);
+
+function createStorage(): StoragePort {
+  const url = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (url && secretKey) return new SupabaseStorage(url, secretKey);
+  if (process.env.NODE_ENV === "production") throw new Error("DURABLE_BYTE_STORAGE_NOT_CONFIGURED");
+  return new MemoryStorage();
+}
 
 function createTransferStateRepository(): TransferStateRepository {
   const url = process.env.SUPABASE_URL;
@@ -124,8 +134,15 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
     const token = String(req.query.token ?? "");
     recipientAccess.verify(token, req.params.id);
     await service.ensureLoaded(req.params.id);
-    const object = await storage.openForDownload(req.params.id);
-    res.json({ transferId: req.params.id, objectKey: object.objectKey, notice: recipientExpirationNotice });
+    const session = service.get(req.params.id);
+    res.setHeader("Content-Type", session.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(session.fileName)}`);
+    res.setHeader("Content-Length", String(session.totalBytes));
+    const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
+    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+      res.write(await storage.readPart(req.params.id, partNumber));
+    }
+    res.end();
   } catch (error) {
     res.status(403).json({ error: PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE });
   }
