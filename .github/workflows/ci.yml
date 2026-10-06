@@ -38,5 +38,8 @@ jobs:
           test/private-lane-lifecycle-coordinator.test.ts
           test/integrity-recovery-policy.test.ts
           test/recovery-chain-verifier.test.ts
+          test/transfer.test.ts
+          test/transfer-state-mapper.test.ts
+          test/durable-transfer-state-service.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
