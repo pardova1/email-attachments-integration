@@ -26,6 +26,18 @@ export class TransferService {
     return session;
   }
 
+  async createDurable(input: Parameters<TransferService["create"]>[0]) {
+    const session = this.create(input);
+    try {
+      await this.persistCreated(session.id);
+      return session;
+    } catch (error) {
+      this.sessions.delete(session.id);
+      this.lanes.delete(session.id);
+      throw error;
+    }
+  }
+
   async persistCreated(id: string) {
     if (!this.durable) return;
     const session = this.requireCached(id);
