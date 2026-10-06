@@ -9,7 +9,7 @@ test("durable storage hashes exact stored bytes in part order", async () => {
   globalThis.fetch=async (input,init={}) => {
     const url=String(input);
     if(init.method==="POST") { stored.set(url,Buffer.from(init.body as Buffer)); return new Response("{}",{status:200}); }
-    const data=stored.get(url); return data ? new Response(data,{status:200}) : new Response("",{status:404});
+    const data=stored.get(url); return data ? new Response(new Uint8Array(data),{status:200}) : new Response("",{status:404});
   };
   try {
     const storage=new SupabaseStorage("https://example.supabase.co","secret");
