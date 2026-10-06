@@ -19,6 +19,13 @@ export class DurableTransferStateService {
   return this.repository.save(next,current.version);
  }
 
+ async expire(transferId:string) {
+  const current=await this.repository.get(transferId);
+  if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
+  if(current.status==="expired") return current;
+  return this.repository.save({...current,status:"expired"},current.version);
+ }
+
  async restore(transferId:string) {
   const state=await this.repository.get(transferId);
   if(!state) throw new Error("TRANSFER_NOT_FOUND");
