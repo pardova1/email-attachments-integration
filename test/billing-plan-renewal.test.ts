@@ -22,7 +22,23 @@ test("early renewal preserves remaining paid time", () => {
   assert.equal(renewed.startsAt.toISOString(),first.startsAt.toISOString());
   assert.equal(renewed.expiresAt.getTime(),first.expiresAt.getTime()+365*24*60*60*1000);
 });
-test("active plan cannot silently change during renewal", () => {
-  const first=createAnnualLicense("u1",new Date("2026-01-01T00:00:00Z"),"individual");
-  assert.throws(()=>createAnnualLicense("u1",new Date("2026-06-01T00:00:00Z"),"business",first),/LICENSE_PLAN_CHANGE_REQUIRES_SEPARATE_FLOW/);
+test("individual and business are independent licenses and may both be valid", () => {
+  const paidAt=new Date("2026-01-01T00:00:00Z");
+  const individual=createAnnualLicense("u1",paidAt,"individual",null,"John");
+  const business=createAnnualLicense("u1",paidAt,"business",null,"Example Business");
+  assert.equal(individual.plan,"individual");
+  assert.equal(individual.licenseName,"John");
+  assert.equal(individual.amountPaidUsdCents,400);
+  assert.equal(business.plan,"business");
+  assert.equal(business.licenseName,"Example Business");
+  assert.equal(business.amountPaidUsdCents,1000);
+});
+
+test("renewing one license does not consume the other license term", () => {
+  const paidAt=new Date("2026-01-01T00:00:00Z");
+  const individual=createAnnualLicense("u1",paidAt,"individual",null,"John");
+  const business=createAnnualLicense("u1",paidAt,"business",null,"Example Business");
+  const renewedIndividual=createAnnualLicense("u1",new Date("2026-06-01T00:00:00Z"),"individual",individual);
+  assert.equal(renewedIndividual.expiresAt.getTime(),individual.expiresAt.getTime()+365*24*60*60*1000);
+  assert.equal(business.expiresAt.toISOString(),createAnnualLicense("u1",paidAt,"business").expiresAt.toISOString());
 });
