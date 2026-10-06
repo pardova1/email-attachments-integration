@@ -8,6 +8,8 @@ import { RecipientAccessService } from "./services/recipient-access.js";
 import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
 import { verifySha256 } from "./security/checksum.js";
 import { MemoryLicenseRepository } from "./adapters/memory-license-repository.js";
+import { SupabaseLicenseRepository } from "./adapters/supabase-license-repository.js";
+import type { LicenseRepository } from "./billing/license-repository.js";
 import { EntitlementService } from "./billing/entitlement-service.js";
 import type { PaymentProvider } from "./billing/payment-provider.js";
 import { SendAuthorizationService } from "./services/send-authorization-service.js";
@@ -38,10 +40,18 @@ function createTransferStateRepository(): TransferStateRepository {
   if (process.env.NODE_ENV === "production") throw new Error("DURABLE_TRANSFER_STATE_NOT_CONFIGURED");
   return new MemoryTransferStateRepository();
 }
+function createLicenseRepository(): LicenseRepository {
+  const url = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (url && secretKey) return new SupabaseLicenseRepository(url, secretKey);
+  if (process.env.NODE_ENV === "production") throw new Error("DURABLE_LICENSE_STATE_NOT_CONFIGURED");
+  return new MemoryLicenseRepository();
+}
+
 const signingSecret = requireProductionSecret("TOKEN_SIGNING_SECRET", "development-only-secret");
 const staffSigningSecret = requireProductionSecret("STAFF_SIGNING_SECRET", "development-staff-secret");
 const recipientAccess = new RecipientAccessService(signingSecret);
-const licenses = new MemoryLicenseRepository();
+const licenses = createLicenseRepository();
 const unavailablePayments: PaymentProvider = {
   async createCheckout() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); },
   async verifyPayment() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
