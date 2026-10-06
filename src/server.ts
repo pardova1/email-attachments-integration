@@ -20,11 +20,13 @@ import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-st
 import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
 import { requireProductionConfig, requireProductionSecret } from "./config/production-secrets.js";
 import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenticator.js";
+import { VerifiedDownloadService } from "./services/verified-download-service.js";
 
 const app = express();
 const storage = createStorage();
 const transferStateRepository = createTransferStateRepository();
 const service = new TransferService(storage, undefined, transferStateRepository);
+const verifiedDownloads = new VerifiedDownloadService(storage);
 
 function createStorage(): StoragePort {
   const url = process.env.SUPABASE_URL;
@@ -154,8 +156,8 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(session.fileName)}`);
     res.setHeader("Content-Length", String(session.totalBytes));
     const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
-    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-      const part = await storage.readPart(req.params.id, partNumber);
+    const parts = await verifiedDownloads.readVerified(req.params.id, totalParts, session.originalSha256);
+    for (const part of parts) {
       if (!res.write(part)) await new Promise<void>(resolve => res.once("drain", resolve));
     }
     res.end();
