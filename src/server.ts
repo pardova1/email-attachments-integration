@@ -11,10 +11,22 @@ import type { PaymentProvider } from "./billing/payment-provider.js";
 import { SendAuthorizationService } from "./services/send-authorization-service.js";
 import { verifyStaffToken } from "./security/staff-authorization.js";
 import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "./incidents/public-incident-notification.js";
+import { MemoryTransferStateRepository } from "./adapters/memory-transfer-state-repository.js";
+import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-state-repository.js";
+import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
 
 const app = express();
 const storage = new MemoryStorage();
-const service = new TransferService(storage);
+const transferStateRepository = createTransferStateRepository();
+const service = new TransferService(storage, undefined, transferStateRepository);
+
+function createTransferStateRepository(): TransferStateRepository {
+  const url = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (url && secretKey) return new SupabaseTransferStateRepository({ url, secretKey });
+  if (process.env.NODE_ENV === "production") throw new Error("DURABLE_TRANSFER_STATE_NOT_CONFIGURED");
+  return new MemoryTransferStateRepository();
+}
 const signingSecret = process.env.TOKEN_SIGNING_SECRET ?? "development-only-secret";
 const staffSigningSecret = process.env.STAFF_SIGNING_SECRET ?? "development-staff-secret";
 const recipientAccess = new RecipientAccessService(signingSecret);
