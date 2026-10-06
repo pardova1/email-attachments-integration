@@ -105,9 +105,10 @@ app.put("/v1/transfers/:id/parts/:partNumber", express.raw({ type: "*/*", limit:
   try {
     const data = Buffer.from(req.body);
     const checksum = req.header("x-content-sha256");
-    if (checksum) verifySha256(data, checksum);
+    if (!checksum) throw new Error("CHUNK_SHA256_REQUIRED");
+    verifySha256(data, checksum);
     const result = await service.uploadPart(req.params.id, Number(req.params.partNumber), data);
-    res.json({ ...result, checksumVerified: Boolean(checksum) });
+    res.json({ ...result, checksumVerified: true });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
   }
