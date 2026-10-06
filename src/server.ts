@@ -6,7 +6,7 @@ import type { StoragePort } from "./ports/storage.js";
 import { TransferService } from "./services/transfer-service.js";
 import { RecipientAccessService } from "./services/recipient-access.js";
 import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
-import { verifySha256 } from "./security/checksum.js";
+import { requireChunkSha256 } from "./services/chunk-integrity-gate.js";
 import { MemoryLicenseRepository } from "./adapters/memory-license-repository.js";
 import { SupabaseLicenseRepository } from "./adapters/supabase-license-repository.js";
 import type { LicenseRepository } from "./billing/license-repository.js";
@@ -105,8 +105,7 @@ app.put("/v1/transfers/:id/parts/:partNumber", express.raw({ type: "*/*", limit:
   try {
     const data = Buffer.from(req.body);
     const checksum = req.header("x-content-sha256");
-    if (!checksum) throw new Error("CHUNK_SHA256_REQUIRED");
-    verifySha256(data, checksum);
+    requireChunkSha256(data, checksum);
     const result = await service.uploadPart(req.params.id, Number(req.params.partNumber), data);
     res.json({ ...result, checksumVerified: true });
   } catch (error) {
