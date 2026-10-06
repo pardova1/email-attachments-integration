@@ -9,6 +9,8 @@ export class SendAuthorizationService {
 
   async createForValidUser(userId: string, input: Parameters<TransferService["create"]>[0], now = new Date()) {
     await this.entitlements.requireActive(userId, now);
-    return this.transfers.create(input);
+    const transfer = this.transfers.create(input);
+    await this.transfers.persistCreated(transfer.id);
+    return transfer;
   }
 }
