@@ -53,3 +53,24 @@ test("crypto context exposes only an opaque key reference for durable state",asy
   assert.match(lane.crypto.keyReference,/^dev-key-/);
   assert.equal("rawKey" in (lane.crypto as unknown as Record<string,unknown>),false);
 });
+
+
+test("restart rehydration reuses durable lane and key reference without creating a key",()=>{
+  let creates=0;
+  const vault={
+    async createKey(){ creates++; return "unexpected-new-key"; },
+    async destroyKey(){ }
+  };
+  const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(vault));
+  const restored=c.restoreFromReference("t-restart","lane-persisted","kms-ref-persisted","verified");
+  assert.equal(creates,0);
+  assert.equal(restored.laneId,"lane-persisted");
+  assert.equal(restored.crypto.keyReference,"kms-ref-persisted");
+  assert.equal(restored.status,"verified");
+});
+
+test("restart rehydration fails closed without a durable key reference",()=>{
+  const vault={async createKey(){ return "unused"; },async destroyKey(){}};
+  const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(vault));
+  assert.throws(()=>c.restoreFromReference("t-missing","lane-persisted",""),/TRANSFER_CRYPTO_REFERENCE_REQUIRED/);
+});
