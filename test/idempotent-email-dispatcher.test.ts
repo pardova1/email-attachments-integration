@@ -1,0 +1,7 @@
+import assert from "node:assert/strict";import test from "node:test";
+import { MemoryNotificationOutbox } from "../src/adapters/memory-notification-outbox.js";
+import { IdempotentEmailDispatcher } from "../src/email/idempotent-email-dispatcher.js";
+import type { RecoveryEmail,RecoveryEmailPort } from "../src/email/recovery-email-port.js";
+class Capture implements RecoveryEmailPort{sent:RecoveryEmail[]=[];async send(m:RecoveryEmail){this.sent.push(m);}}
+test("notification retry after confirmed send is deduplicated",async()=>{const c=new Capture(),o=new MemoryNotificationOutbox(),d=new IdempotentEmailDispatcher(o,c),m={recipient:"a@example.com",subject:"s",text:"t"};assert.equal((await d.send("payment:ref:success",m)).sent,true);assert.equal((await d.send("payment:ref:success",m)).deduplicated,true);assert.equal(c.sent.length,1);assert.equal((await o.get("payment:ref:success"))?.status,"sent");});
+test("failed provider send remains pending and can retry",async()=>{let fail=true;const sent:RecoveryEmail[]=[];const email:RecoveryEmailPort={async send(m){if(fail){fail=false;throw new Error("provider down");}sent.push(m);}};const o=new MemoryNotificationOutbox(),d=new IdempotentEmailDispatcher(o,email),m={recipient:"a@example.com",subject:"s",text:"t"};await assert.rejects(()=>d.send("transfer:t:resolved",m));assert.equal((await o.get("transfer:t:resolved"))?.status,"pending");assert.equal((await d.send("transfer:t:resolved",m)).sent,true);assert.equal(sent.length,1);});
