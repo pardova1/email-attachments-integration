@@ -14,7 +14,8 @@ export class SendAuthorizationService {
     const transfer = await this.transfers.createDurable(input);
     if (!this.privateLanes) return transfer;
     try {
-      await this.privateLanes.createForSend(transfer.id, this.transfers.lane(transfer.id).laneId);
+      const lifecycle = await this.privateLanes.createForSend(transfer.id, this.transfers.lane(transfer.id).laneId);
+      await this.transfers.persistKeyReference(transfer.id, lifecycle.crypto.keyReference);
       return transfer;
     } catch (error) {
       await this.privateLanes.retire(transfer.id);
