@@ -28,6 +28,17 @@ export class TransferCryptoContextService {
     };
   }
 
+  rehydrate(transferId: string, laneId: string, keyReference: string): TransferCryptoContext {
+    if (!transferId || !laneId || !keyReference) throw new Error("TRANSFER_CRYPTO_REFERENCE_REQUIRED");
+    return {
+      transferId,
+      laneId,
+      keyReference,
+      encryptionScope: "single-transfer",
+      createdAt: new Date().toISOString()
+    };
+  }
+
   async destroy(context: TransferCryptoContext) {
     await this.vault.destroyKey(context.keyReference);
   }
