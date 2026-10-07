@@ -7,7 +7,12 @@ export class MemoryStorage implements StoragePort {
 
   async putPart(transferId: string, partNumber: number, data: Buffer) {
     const transfer = this.parts.get(transferId) ?? new Map<number, Buffer>();
-    transfer.set(partNumber, data);
+    const existing = transfer.get(partNumber);
+    if (existing) {
+      if (existing.equals(data)) return;
+      throw new Error("FILE_INTEGRITY_COMMAND_VIOLATION");
+    }
+    transfer.set(partNumber, Buffer.from(data));
     this.parts.set(transferId, transfer);
   }
 
