@@ -34,7 +34,8 @@ import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecyc
 const app = express();
 const storage = createStorage();
 const transferStateRepository = createTransferStateRepository();
-let privateLanes: PrivateLaneLifecycleCoordinator;\nconst service = new TransferService(storage, undefined, transferStateRepository, { onExpired: id => privateLanes.onExpired(id) });
+let privateLanes: PrivateLaneLifecycleCoordinator;
+const service = new TransferService(storage, undefined, transferStateRepository, { onExpired: id => privateLanes.onExpired(id) });
 const verifiedDownloads = new VerifiedDownloadService(storage);
 const notificationOutbox = createNotificationOutbox();
 const customerEmailPort = createCustomerEmailPort();
