@@ -31,3 +31,17 @@ test("crypto lifecycle can bind to the canonical durable transfer lane",async()=
   assert.equal(lane.laneId,"lane-canonical");
   assert.equal(lane.crypto.laneId,"lane-canonical");
 });
+
+
+test("expiration retires the private crypto context and destroys its key",async()=>{
+  const destroyed:string[]=[];
+  const vault={
+    async createKey(){ return "key-expiring"; },
+    async destroyKey(reference:string){ destroyed.push(reference); }
+  };
+  const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(vault));
+  await c.createForSend("t-expiring","lane-expiring");
+  await c.onExpired("t-expiring");
+  assert.deepEqual(destroyed,["key-expiring"]);
+  assert.equal(c.get("t-expiring")?.status,"retired");
+});
