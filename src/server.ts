@@ -23,6 +23,10 @@ import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenti
 import { VerifiedDownloadService } from "./services/verified-download-service.js";
 import { createLicensePaymentApplicationRepository } from "./config/license-payment-application-factory.js";
 import { createNotificationOutbox } from "./config/notification-outbox-factory.js";
+import { createCustomerEmailPort } from "./config/customer-email-port-factory.js";
+import { IdempotentEmailDispatcher } from "./email/idempotent-email-dispatcher.js";
+import { FinancialCustomerEmailDispatcher } from "./billing/financial-customer-email-dispatcher.js";
+import { RecoveryEmailDispatcher } from "./email/recovery-email-dispatcher.js";
 
 const app = express();
 const storage = createStorage();
@@ -30,6 +34,12 @@ const transferStateRepository = createTransferStateRepository();
 const service = new TransferService(storage, undefined, transferStateRepository);
 const verifiedDownloads = new VerifiedDownloadService(storage);
 const notificationOutbox = createNotificationOutbox();
+const customerEmailPort = createCustomerEmailPort();
+const customerEmail = new IdempotentEmailDispatcher(notificationOutbox, customerEmailPort);
+const financialCustomerEmails = new FinancialCustomerEmailDispatcher(customerEmail);
+const recoveryEmails = new RecoveryEmailDispatcher(customerEmail);
+void financialCustomerEmails;
+void recoveryEmails;
 
 function createStorage(): StoragePort {
   const url = process.env.SUPABASE_URL;
