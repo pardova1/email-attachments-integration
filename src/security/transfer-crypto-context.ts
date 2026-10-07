@@ -28,7 +28,7 @@ export class TransferCryptoContextService {
     };
   }
 
-  async destroy(context: TransferCryptoContext) {
+  rehydrate(transferId: string, laneId: string, keyReference: string): TransferCryptoContext {\n    if (!transferId || !laneId || !keyReference) throw new Error("TRANSFER_CRYPTO_REFERENCE_REQUIRED");\n    return {\n      transferId,\n      laneId,\n      keyReference,\n      encryptionScope: "single-transfer",\n      createdAt: new Date().toISOString()\n    };\n  }\n\n  async destroy(context: TransferCryptoContext) {
     await this.vault.destroyKey(context.keyReference);
   }
 }
