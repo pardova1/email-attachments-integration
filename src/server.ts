@@ -11,7 +11,6 @@ import { MemoryLicenseRepository } from "./adapters/memory-license-repository.js
 import { SupabaseLicenseRepository } from "./adapters/supabase-license-repository.js";
 import type { LicenseRepository } from "./billing/license-repository.js";
 import { EntitlementService } from "./billing/entitlement-service.js";
-import type { PaymentProvider } from "./billing/payment-provider.js";
 import { SendAuthorizationService } from "./services/send-authorization-service.js";
 import { verifyStaffToken } from "./security/staff-authorization.js";
 import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "./incidents/public-incident-notification.js";
@@ -27,6 +26,7 @@ import { createCustomerEmailPort } from "./config/customer-email-port-factory.js
 import { IdempotentEmailDispatcher } from "./email/idempotent-email-dispatcher.js";
 import { FinancialCustomerEmailDispatcher } from "./billing/financial-customer-email-dispatcher.js";
 import { RecoveryEmailDispatcher } from "./email/recovery-email-dispatcher.js";
+import { createPaymentProvider } from "./config/payment-provider-factory.js";
 
 const app = express();
 const storage = createStorage();
@@ -68,12 +68,9 @@ const signingSecret = requireProductionSecret("TOKEN_SIGNING_SECRET", "developme
 const staffSigningSecret = requireProductionSecret("STAFF_SIGNING_SECRET", "development-staff-secret");
 const recipientAccess = new RecipientAccessService(signingSecret);
 const licenses = createLicenseRepository();
-const unavailablePayments: PaymentProvider = {
-  async createCheckout() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); },
-  async verifyPayment() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
-};
+const payments = createPaymentProvider();
 const paymentApplications = createLicensePaymentApplicationRepository(licenses);
-const entitlements = new EntitlementService(unavailablePayments, licenses, paymentApplications);
+const entitlements = new EntitlementService(payments, licenses, paymentApplications);
 const authorizedSends = new SendAuthorizationService(entitlements, service);
 const senderAuthenticator = new SupabaseSenderAuthenticator(
   requireProductionConfig("SUPABASE_URL", "http://localhost:54321"),
