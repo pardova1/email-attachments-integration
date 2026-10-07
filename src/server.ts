@@ -21,6 +21,7 @@ import type { TransferStateRepository } from "./ports/transfer-state-repository.
 import { requireProductionConfig, requireProductionSecret } from "./config/production-secrets.js";
 import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenticator.js";
 import { VerifiedDownloadService } from "./services/verified-download-service.js";
+import { createLicensePaymentApplicationRepository } from "./config/license-payment-application-factory.js";
 
 const app = express();
 const storage = createStorage();
@@ -59,7 +60,8 @@ const unavailablePayments: PaymentProvider = {
   async createCheckout() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); },
   async verifyPayment() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
 };
-const entitlements = new EntitlementService(unavailablePayments, licenses);
+const paymentApplications = createLicensePaymentApplicationRepository(licenses);
+const entitlements = new EntitlementService(unavailablePayments, licenses, paymentApplications);
 const authorizedSends = new SendAuthorizationService(entitlements, service);
 const senderAuthenticator = new SupabaseSenderAuthenticator(
   requireProductionConfig("SUPABASE_URL", "http://localhost:54321"),
