@@ -38,3 +38,35 @@ test("TransferService survives process replacement without changing lane or expi
  assert.equal(available.downloadExpiresAt?.toISOString(),completed.downloadExpiresAt.toISOString());
  assert.equal(available.downloadAvailableAt?.toISOString(),completed.downloadAvailableAt.toISOString());
 });
+
+
+test("durable restore rehydrates the persisted private lane key reference",async()=>{
+ const storage=new MemoryStorage();
+ const repository=new MemoryTransferStateRepository();
+ const first=new TransferService(storage,undefined,repository);
+ const transfer=await first.createDurable({
+  fileName:"restart.bin",contentType:"application/octet-stream",totalBytes:1,chunkBytes:1,
+  originalSha256:sha256(Buffer.from("x")),senderExpirationConfirmed:true
+ });
+ const laneId=first.lane(transfer.id).laneId;
+ await first.persistKeyReference(transfer.id,"kms-ref-restart");
+ let observed:{transferId:string;laneId:string;keyReference?:string;status:string}|undefined;
+ const replacement=new TransferService(storage,undefined,repository,undefined,{onRestored:state=>{observed=state;}});
+ await replacement.restore(transfer.id);
+ assert.deepEqual(observed,{transferId:transfer.id,laneId,keyReference:"kms-ref-restart",status:"created"});
+});
+
+test("durable restore fails closed before caching when key reference is missing",async()=>{
+ const storage=new MemoryStorage();
+ const repository=new MemoryTransferStateRepository();
+ const first=new TransferService(storage,undefined,repository);
+ const transfer=await first.createDurable({
+  fileName:"missing-key.bin",contentType:"application/octet-stream",totalBytes:1,chunkBytes:1,
+  originalSha256:sha256(Buffer.from("x")),senderExpirationConfirmed:true
+ });
+ const replacement=new TransferService(storage,undefined,repository,undefined,{onRestored:state=>{
+  if(!state.keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");
+ }});
+ await assert.rejects(replacement.restore(transfer.id),/TRANSFER_KEY_REFERENCE_REQUIRED/);
+ assert.throws(()=>replacement.get(transfer.id),/TRANSFER_NOT_LOADED/);
+});
