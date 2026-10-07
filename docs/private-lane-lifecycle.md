@@ -12,4 +12,8 @@ A sender license may authorize many sends, but every send creates a new lane and
 
 Retirement means the transfer-specific cryptographic context is released/destroyed according to the production key-management and retention policy. Ordinary business administration cannot prevent lane isolation or obtain payload access.
 
-The current coordinator uses in-process state as a development foundation. Production lifecycle state must be persisted through the durable transfer-state repository so service restarts preserve the canonical lane identity.
+The coordinator keeps a process-local lifecycle cache. Durable transfer state preserves the canonical lane ID and opaque key reference; restoring an active transfer rebuilds its context before publishing the session.
+
+When an expired transfer is encountered after restart, cleanup uses that saved reference to retire the original key without creating a new key or activating the transfer. A persisted expired status remains terminal even if timestamps are later changed. Failed retirement leaves the transfer unavailable and can be retried on the next restore attempt. Successful retirement is not repeated within the same coordinator. Across process replacements, production vault implementations must tolerate repeated destruction of an already-destroyed reference.
+
+This restore path performs cleanup when the transfer is accessed. A production background expiration sweep is still required for transfers that receive no further requests.

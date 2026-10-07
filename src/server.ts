@@ -39,7 +39,7 @@ const service = new TransferService(
   storage,
   undefined,
   transferStateRepository,
-  { onExpired: id => privateLanes.onExpired(id) },
+  { onExpired: (id, crypto) => privateLanes.onExpired(id, crypto) },
   { onRestored: state => {
     if (!state.keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");
     const status = state.status === "available" || state.status === "verified" ? "verified" : state.status === "recovering" ? "recovering" : "active";

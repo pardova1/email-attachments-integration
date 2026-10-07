@@ -11,7 +11,7 @@ export interface TransferRestoreObserver {
 }
 
 export interface TransferExpirationObserver {
-  onExpired(transferId: string): Promise<void>;
+  onExpired(transferId: string, crypto?: { laneId: string; keyReference?: string }): Promise<void>;
 }
 
 export class TransferService {
@@ -63,14 +63,15 @@ export class TransferService {
   async restore(id: string) {
     if (!this.durable) throw new Error("TRANSFER_STATE_REPOSITORY_REQUIRED");
     const restored = await this.durable.restore(id);
-    const activeExpiry = restored.session.status === "complete"
-      ? restored.session.downloadExpiresAt
-      : restored.session.uploadExpiresAt;
-    if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
+    const activeExpiry = restored.session.downloadExpiresAt ?? restored.session.uploadExpiresAt;
+    if (restored.session.status === "expired" || activeExpiry.getTime() <= Date.now()) {
       restored.session.status = "expired";
       await this.durable.expire(id);
       await this.storage.purge(id);
-      await this.expirationObserver?.onExpired(id);
+      await this.expirationObserver?.onExpired(id, {
+        laneId: restored.persisted.laneId,
+        keyReference: restored.persisted.keyReference
+      });
       throw new Error("TRANSFER_EXPIRED");
     }
     await this.restoreObserver?.onRestored({
@@ -86,8 +87,8 @@ export class TransferService {
 
   get(id: string) {
     const session = this.requireCached(id);
-    const activeExpiry = session.status === "complete" ? session.downloadExpiresAt : session.uploadExpiresAt;
-    if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
+    const activeExpiry = session.downloadExpiresAt ?? session.uploadExpiresAt;
+    if (session.status === "expired" || activeExpiry.getTime() <= Date.now()) {
       session.status = "expired";
       throw new Error("TRANSFER_EXPIRED");
     }
@@ -96,8 +97,8 @@ export class TransferService {
 
   async expireIfNeeded(id: string) {
     const session = this.requireCached(id);
-    const activeExpiry = session.status === "complete" ? session.downloadExpiresAt : session.uploadExpiresAt;
-    if (!activeExpiry || activeExpiry.getTime() > Date.now()) return false;
+    const activeExpiry = session.downloadExpiresAt ?? session.uploadExpiresAt;
+    if (session.status !== "expired" && activeExpiry.getTime() > Date.now()) return false;
     session.status = "expired";
     if (this.durable) await this.durable.expire(id);
     await this.storage.purge(id);
