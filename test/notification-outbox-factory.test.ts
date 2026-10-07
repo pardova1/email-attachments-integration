@@ -1,0 +1,4 @@
+import assert from "node:assert/strict";import test from "node:test";import { createNotificationOutbox } from "../src/config/notification-outbox-factory.js";import { MemoryNotificationOutbox } from "../src/adapters/memory-notification-outbox.js";import { SupabaseNotificationOutbox } from "../src/adapters/supabase-notification-outbox.js";
+test("development uses memory notification outbox",()=>assert.ok(createNotificationOutbox({NODE_ENV:"test"}) instanceof MemoryNotificationOutbox));
+test("production requires durable notification outbox configuration",()=>assert.throws(()=>createNotificationOutbox({NODE_ENV:"production"}),/DURABLE_NOTIFICATION_OUTBOX_NOT_CONFIGURED/));
+test("production selects Supabase notification outbox",()=>assert.ok(createNotificationOutbox({NODE_ENV:"production",SUPABASE_URL:"https://example.invalid",SUPABASE_SECRET_KEY:"secret"}) instanceof SupabaseNotificationOutbox));
