@@ -35,7 +35,17 @@ const app = express();
 const storage = createStorage();
 const transferStateRepository = createTransferStateRepository();
 let privateLanes: PrivateLaneLifecycleCoordinator;
-const service = new TransferService(\n  storage,\n  undefined,\n  transferStateRepository,\n  { onExpired: id => privateLanes.onExpired(id) },\n  { onRestored: state => {\n    if (!state.keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");\n    const status = state.status === "available" || state.status === "verified" ? "verified" : state.status === "recovering" ? "recovering" : "active";\n    privateLanes.restoreFromReference(state.transferId, state.laneId, state.keyReference, status);\n  }}\n);
+const service = new TransferService(
+  storage,
+  undefined,
+  transferStateRepository,
+  { onExpired: id => privateLanes.onExpired(id) },
+  { onRestored: state => {
+    if (!state.keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");
+    const status = state.status === "available" || state.status === "verified" ? "verified" : state.status === "recovering" ? "recovering" : "active";
+    privateLanes.restoreFromReference(state.transferId, state.laneId, state.keyReference, status);
+  }}
+);
 const verifiedDownloads = new VerifiedDownloadService(storage);
 const notificationOutbox = createNotificationOutbox();
 const customerEmailPort = createCustomerEmailPort();
