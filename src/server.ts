@@ -152,12 +152,14 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
     recipientAccess.verify(token, req.params.id);
     await service.ensureLoaded(req.params.id);
     const session = service.get(req.params.id);
+    const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
+    const parts = verifiedDownloads.streamVerified(req.params.id, totalParts, session.originalSha256);
+    const first = await parts.next();
     res.setHeader("Content-Type", session.contentType);
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(session.fileName)}`);
     res.setHeader("Content-Length", String(session.totalBytes));
-    const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
-    const parts = await verifiedDownloads.readVerified(req.params.id, totalParts, session.originalSha256);
-    for (const part of parts) {
+    if (!first.done && !res.write(first.value)) await new Promise<void>(resolve => res.once("drain", resolve));
+    for await (const part of parts) {
       if (!res.write(part)) await new Promise<void>(resolve => res.once("drain", resolve));
     }
     res.end();
