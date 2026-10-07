@@ -1,8 +1,8 @@
-import type { PaymentProvider } from "../billing/payment-provider.js";
+import type { CheckoutRequest, CheckoutResult, PaymentConfirmation, PaymentProvider } from "../billing/payment-provider.js";
 
 class UnavailablePaymentProvider implements PaymentProvider {
-  async createCheckout() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
-  async verifyPayment() { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
+  async createCheckout(_request: CheckoutRequest): Promise<CheckoutResult> { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
+  async verifyPayment(_providerReference: string): Promise<PaymentConfirmation> { throw new Error("PAYMENT_PROVIDER_NOT_CONFIGURED"); }
 }
 
 export function createPaymentProvider(env: NodeJS.ProcessEnv = process.env): PaymentProvider {
