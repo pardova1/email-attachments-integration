@@ -44,15 +44,19 @@ export class PrivateLaneLifecycleCoordinator {
     lane.status=status;
   }
 
-  async onExpired(transferId:string) {
+  async onExpired(transferId:string, persisted?:{laneId:string;keyReference?:string}) {
+    if (!this.lanes.has(transferId) && persisted?.keyReference) {
+      this.restoreFromReference(transferId,persisted.laneId,persisted.keyReference,"expired");
+    }
     const lane=this.lanes.get(transferId);
+    if (lane?.status === "retired") return;
     if (lane) lane.status="expired";
     await this.retire(transferId);
   }
 
   async retire(transferId:string) {
     const lane=this.lanes.get(transferId);
-    if (!lane) return;
+    if (!lane || lane.status === "retired") return;
     await this.cryptoService.destroy(lane.crypto);
     lane.status="retired";
   }
