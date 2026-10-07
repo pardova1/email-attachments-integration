@@ -22,12 +22,14 @@ import { requireProductionConfig, requireProductionSecret } from "./config/produ
 import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenticator.js";
 import { VerifiedDownloadService } from "./services/verified-download-service.js";
 import { createLicensePaymentApplicationRepository } from "./config/license-payment-application-factory.js";
+import { createNotificationOutbox } from "./config/notification-outbox-factory.js";
 
 const app = express();
 const storage = createStorage();
 const transferStateRepository = createTransferStateRepository();
 const service = new TransferService(storage, undefined, transferStateRepository);
 const verifiedDownloads = new VerifiedDownloadService(storage);
+const notificationOutbox = createNotificationOutbox();
 
 function createStorage(): StoragePort {
   const url = process.env.SUPABASE_URL;
