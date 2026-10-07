@@ -23,3 +23,11 @@ test("lane can move through recovery without changing identity",async()=>{
   c.setStatus("t1","recovering");
   assert.equal(c.get("t1")?.laneId,original.laneId);
 });
+
+
+test("crypto lifecycle can bind to the canonical durable transfer lane",async()=>{
+  const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(new MemoryTransferKeyVault()));
+  const lane=await c.createForSend("t-canonical","lane-canonical");
+  assert.equal(lane.laneId,"lane-canonical");
+  assert.equal(lane.crypto.laneId,"lane-canonical");
+});

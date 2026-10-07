@@ -27,6 +27,9 @@ import { IdempotentEmailDispatcher } from "./email/idempotent-email-dispatcher.j
 import { FinancialCustomerEmailDispatcher } from "./billing/financial-customer-email-dispatcher.js";
 import { RecoveryEmailDispatcher } from "./email/recovery-email-dispatcher.js";
 import { createPaymentProvider } from "./config/payment-provider-factory.js";
+import { createTransferKeyVault } from "./config/transfer-key-vault-factory.js";
+import { TransferCryptoContextService } from "./security/transfer-crypto-context.js";
+import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecycle-coordinator.js";
 
 const app = express();
 const storage = createStorage();
@@ -71,7 +74,9 @@ const licenses = createLicenseRepository();
 const payments = createPaymentProvider();
 const paymentApplications = createLicensePaymentApplicationRepository(licenses);
 const entitlements = new EntitlementService(payments, licenses, paymentApplications);
-const authorizedSends = new SendAuthorizationService(entitlements, service);
+const transferKeyVault = createTransferKeyVault();
+const privateLanes = new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(transferKeyVault));
+const authorizedSends = new SendAuthorizationService(entitlements, service, privateLanes);
 const senderAuthenticator = new SupabaseSenderAuthenticator(
   requireProductionConfig("SUPABASE_URL", "http://localhost:54321"),
   requireProductionSecret("SUPABASE_PUBLISHABLE_KEY", "development-publishable-key")
