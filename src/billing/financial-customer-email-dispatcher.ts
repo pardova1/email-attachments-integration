@@ -1,14 +1,14 @@
 import type { AnnualLicense } from "./annual-license.js";
 import { failedPaymentNotice, successfulPurchaseNotice } from "./payment-customer-notices.js";
-import type { RecoveryEmailPort } from "../email/recovery-email-port.js";
+import type { IdempotentEmailDispatcher } from "../email/idempotent-email-dispatcher.js";
 export class FinancialCustomerEmailDispatcher {
-  constructor(private readonly email:RecoveryEmailPort){}
-  async sendPurchaseConfirmation(purchaserEmail:string,license:AnnualLicense){
+  constructor(private readonly email:IdempotentEmailDispatcher){}
+  async sendPurchaseConfirmation(eventKey:string,purchaserEmail:string,license:AnnualLicense){
     const notice=successfulPurchaseNotice(license);
-    await this.email.send({recipient:purchaserEmail,...notice});
+    return this.email.send(`financial:${eventKey}:purchase-confirmation:${purchaserEmail}`,{recipient:purchaserEmail,...notice});
   }
-  async sendPaymentFailure(purchaserEmail:string){
+  async sendPaymentFailure(eventKey:string,purchaserEmail:string){
     const notice=failedPaymentNotice();
-    await this.email.send({recipient:purchaserEmail,...notice});
+    return this.email.send(`financial:${eventKey}:payment-failure:${purchaserEmail}`,{recipient:purchaserEmail,...notice});
   }
 }
