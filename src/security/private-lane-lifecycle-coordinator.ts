@@ -36,7 +36,7 @@ export class PrivateLaneLifecycleCoordinator {
     lane.status=status;
   }
 
-  async retire(transferId:string) {
+  async onExpired(transferId:string) {\n    const lane=this.lanes.get(transferId);\n    if (lane) lane.status="expired";\n    await this.retire(transferId);\n  }\n\n  async retire(transferId:string) {
     const lane=this.lanes.get(transferId);
     if (!lane) return;
     await this.cryptoService.destroy(lane.crypto);
