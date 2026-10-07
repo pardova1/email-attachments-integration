@@ -19,6 +19,13 @@ export class DurableTransferStateService {
   return this.repository.save(next,current.version);
  }
 
+ async setKeyReference(transferId:string,keyReference:string) {
+  if(!keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");
+  const current=await this.repository.get(transferId);
+  if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
+  return this.repository.save({...current,keyReference},current.version);
+ }
+
  async expire(transferId:string) {
   const current=await this.repository.get(transferId);
   if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");

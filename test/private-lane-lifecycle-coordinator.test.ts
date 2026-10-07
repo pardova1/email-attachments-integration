@@ -45,3 +45,11 @@ test("expiration retires the private crypto context and destroys its key",async(
   assert.deepEqual(destroyed,["key-expiring"]);
   assert.equal(c.get("t-expiring")?.status,"retired");
 });
+
+
+test("crypto context exposes only an opaque key reference for durable state",async()=>{
+  const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(new MemoryTransferKeyVault()));
+  const lane=await c.createForSend("t-durable-key","lane-durable-key");
+  assert.match(lane.crypto.keyReference,/^dev-key-/);
+  assert.equal("rawKey" in (lane.crypto as unknown as Record<string,unknown>),false);
+});

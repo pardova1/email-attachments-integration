@@ -43,6 +43,11 @@ export class TransferService {
     }
   }
 
+  async persistKeyReference(id: string, keyReference: string) {
+    if (!this.durable) return;
+    await this.durable.setKeyReference(id, keyReference);
+  }
+
   async persistCreated(id: string) {
     if (!this.durable) return;
     const session = this.requireCached(id);
