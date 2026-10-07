@@ -12,7 +12,13 @@ export class SupabaseStorage implements StoragePort {
     const response = await fetch(this.objectUrl(transferId, partNumber), {
       method:"POST", headers:{...this.headers,"Content-Type":"application/octet-stream","x-upsert":"false"}, body:new Uint8Array(data)
     });
-    if (!response.ok) throw new Error("TRANSFER_STORAGE_WRITE_FAILED");
+    if (response.ok) return;
+    if (response.status === 400 || response.status === 409) {
+      const existing = await this.readPart(transferId, partNumber);
+      if (existing.equals(data)) return;
+      throw new Error("FILE_INTEGRITY_COMMAND_VIOLATION");
+    }
+    throw new Error("TRANSFER_STORAGE_WRITE_FAILED");
   }
   async readPart(transferId: string, partNumber: number) {
     const response = await fetch(this.objectUrl(transferId, partNumber), { headers:this.headers });
