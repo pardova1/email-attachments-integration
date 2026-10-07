@@ -1,0 +1,11 @@
+import type { NotificationOutbox,NotificationOutboxEntry } from "../email/notification-outbox.js";
+import type { RecoveryEmail } from "../email/recovery-email-port.js";
+type Row={notification_key:string;recipient:string;subject:string;body_text:string;status:"pending"|"sent"};
+export class SupabaseNotificationOutbox implements NotificationOutbox{
+ constructor(private readonly url:string,private readonly secretKey:string){}
+ private headers(){return {apikey:this.secretKey,Authorization:`Bearer ${this.secretKey}`,"content-type":"application/json"};}
+ private entry(r:Row):NotificationOutboxEntry{return {key:r.notification_key,message:{recipient:r.recipient,subject:r.subject,text:r.body_text},status:r.status};}
+ async reserve(key:string,message:RecoveryEmail){const r=await fetch(`${this.url}/rest/v1/notification_outbox?on_conflict=notification_key`,{method:"POST",headers:{...this.headers(),Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({notification_key:key,recipient:message.recipient,subject:message.subject,body_text:message.text,status:"pending"})});if(!r.ok)throw new Error("NOTIFICATION_OUTBOX_RESERVE_FAILED");const rows=await r.json() as Row[];if(rows[0])return {entry:this.entry(rows[0]),created:true};const prior=await this.get(key);if(!prior)throw new Error("NOTIFICATION_OUTBOX_RESERVE_FAILED");return {entry:prior,created:false};}
+ async markSent(key:string){const r=await fetch(`${this.url}/rest/v1/notification_outbox?notification_key=eq.${encodeURIComponent(key)}`,{method:"PATCH",headers:{...this.headers(),Prefer:"return=minimal"},body:JSON.stringify({status:"sent",sent_at:new Date().toISOString()})});if(!r.ok)throw new Error("NOTIFICATION_OUTBOX_MARK_SENT_FAILED");}
+ async get(key:string){const r=await fetch(`${this.url}/rest/v1/notification_outbox?notification_key=eq.${encodeURIComponent(key)}&select=notification_key,recipient,subject,body_text,status`,{headers:this.headers()});if(!r.ok)throw new Error("NOTIFICATION_OUTBOX_READ_FAILED");const rows=await r.json() as Row[];return rows[0]?this.entry(rows[0]):null;}
+}
