@@ -6,7 +6,7 @@ import { IntegrityViolationRegistry } from "../integrity/violation-registry.js";
 import { createTransferLane, type TransferLane } from "../scaling/transfer-lane.js";
 import { DurableTransferStateService } from "./durable-transfer-state-service.js";
 
-export interface TransferExpirationObserver {
+export interface TransferRestoreObserver {\n  onRestored(state: { transferId: string; laneId: string; keyReference?: string; status: string }): Promise<void> | void;\n}\n\nexport interface TransferExpirationObserver {
   onExpired(transferId: string): Promise<void>;
 }
 
