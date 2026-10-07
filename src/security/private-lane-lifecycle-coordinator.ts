@@ -36,6 +36,12 @@ export class PrivateLaneLifecycleCoordinator {
     lane.status=status;
   }
 
+  async onExpired(transferId:string) {
+    const lane=this.lanes.get(transferId);
+    if (lane) lane.status="expired";
+    await this.retire(transferId);
+  }
+
   async retire(transferId:string) {
     const lane=this.lanes.get(transferId);
     if (!lane) return;

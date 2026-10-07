@@ -6,6 +6,10 @@ import { IntegrityViolationRegistry } from "../integrity/violation-registry.js";
 import { createTransferLane, type TransferLane } from "../scaling/transfer-lane.js";
 import { DurableTransferStateService } from "./durable-transfer-state-service.js";
 
+export interface TransferExpirationObserver {
+  onExpired(transferId: string): Promise<void>;
+}
+
 export class TransferService {
   private readonly sessions = new Map<string, TransferSession>();
   private readonly lanes = new Map<string, TransferLane>();
@@ -14,7 +18,8 @@ export class TransferService {
   constructor(
     private readonly storage: StoragePort,
     private readonly violations = new IntegrityViolationRegistry(),
-    repository?: TransferStateRepository
+    repository?: TransferStateRepository,
+    private readonly expirationObserver?: TransferExpirationObserver
   ) {
     this.durable = repository ? new DurableTransferStateService(repository) : undefined;
   }
@@ -55,6 +60,7 @@ export class TransferService {
       restored.session.status = "expired";
       await this.durable.expire(id);
       await this.storage.purge(id);
+      await this.expirationObserver?.onExpired(id);
       throw new Error("TRANSFER_EXPIRED");
     }
     this.sessions.set(id, restored.session);
@@ -79,6 +85,7 @@ export class TransferService {
     session.status = "expired";
     if (this.durable) await this.durable.expire(id);
     await this.storage.purge(id);
+    await this.expirationObserver?.onExpired(id);
     return true;
   }
 

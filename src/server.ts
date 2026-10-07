@@ -34,7 +34,8 @@ import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecyc
 const app = express();
 const storage = createStorage();
 const transferStateRepository = createTransferStateRepository();
-const service = new TransferService(storage, undefined, transferStateRepository);
+let privateLanes: PrivateLaneLifecycleCoordinator;
+const service = new TransferService(storage, undefined, transferStateRepository, { onExpired: id => privateLanes.onExpired(id) });
 const verifiedDownloads = new VerifiedDownloadService(storage);
 const notificationOutbox = createNotificationOutbox();
 const customerEmailPort = createCustomerEmailPort();
@@ -75,7 +76,7 @@ const payments = createPaymentProvider();
 const paymentApplications = createLicensePaymentApplicationRepository(licenses);
 const entitlements = new EntitlementService(payments, licenses, paymentApplications);
 const transferKeyVault = createTransferKeyVault();
-const privateLanes = new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(transferKeyVault));
+privateLanes = new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(transferKeyVault));
 const authorizedSends = new SendAuthorizationService(entitlements, service, privateLanes);
 const senderAuthenticator = new SupabaseSenderAuthenticator(
   requireProductionConfig("SUPABASE_URL", "http://localhost:54321"),
