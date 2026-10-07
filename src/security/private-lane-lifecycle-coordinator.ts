@@ -25,7 +25,15 @@ export class PrivateLaneLifecycleCoordinator {
     return structuredClone(lifecycle);
   }
 
-  restoreFromReference(transferId:string,laneId:string,keyReference:string,status:PrivateLaneLifecycleStatus="active") {\n    if (this.lanes.has(transferId)) return this.get(transferId)!;\n    const crypto=this.cryptoService.rehydrate(transferId,laneId,keyReference);\n    const lifecycle={transferId,laneId,crypto,status,createdAt:new Date().toISOString()};\n    this.lanes.set(transferId,lifecycle);\n    return structuredClone(lifecycle);\n  }\n\n  get(transferId:string) {
+  restoreFromReference(transferId:string,laneId:string,keyReference:string,status:PrivateLaneLifecycleStatus="active") {
+    if (this.lanes.has(transferId)) return this.get(transferId)!;
+    const crypto=this.cryptoService.rehydrate(transferId,laneId,keyReference);
+    const lifecycle={transferId,laneId,crypto,status,createdAt:new Date().toISOString()};
+    this.lanes.set(transferId,lifecycle);
+    return structuredClone(lifecycle);
+  }
+
+  get(transferId:string) {
     const lane=this.lanes.get(transferId);
     return lane ? structuredClone(lane) : undefined;
   }
