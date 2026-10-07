@@ -43,7 +43,12 @@ export class TransferService {
     }
   }
 
-  async persistKeyReference(id: string, keyReference: string) {\n    if (!this.durable) return;\n    await this.durable.setKeyReference(id, keyReference);\n  }\n\n  async persistCreated(id: string) {
+  async persistKeyReference(id: string, keyReference: string) {
+    if (!this.durable) return;
+    await this.durable.setKeyReference(id, keyReference);
+  }
+
+  async persistCreated(id: string) {
     if (!this.durable) return;
     const session = this.requireCached(id);
     const lane = this.requireCachedLane(id);
