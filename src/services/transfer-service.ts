@@ -23,7 +23,8 @@ export class TransferService {
     private readonly storage: StoragePort,
     private readonly violations = new IntegrityViolationRegistry(),
     repository?: TransferStateRepository,
-    private readonly expirationObserver?: TransferExpirationObserver
+    private readonly expirationObserver?: TransferExpirationObserver,
+    private readonly restoreObserver?: TransferRestoreObserver
   ) {
     this.durable = repository ? new DurableTransferStateService(repository) : undefined;
   }
@@ -72,6 +73,12 @@ export class TransferService {
       await this.expirationObserver?.onExpired(id);
       throw new Error("TRANSFER_EXPIRED");
     }
+    await this.restoreObserver?.onRestored({
+      transferId: restored.persisted.transferId,
+      laneId: restored.persisted.laneId,
+      keyReference: restored.persisted.keyReference,
+      status: restored.persisted.status
+    });
     this.sessions.set(id, restored.session);
     this.lanes.set(id, restored.lane);
     return restored.session;
