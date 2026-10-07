@@ -16,9 +16,9 @@ export class PrivateLaneLifecycleCoordinator {
 
   constructor(private readonly cryptoService:TransferCryptoContextService) {}
 
-  async createForSend(transferId:string):Promise<PrivateLaneLifecycle> {
+  async createForSend(transferId:string, existingLaneId?:string):Promise<PrivateLaneLifecycle> {
     if (this.lanes.has(transferId)) throw new Error("PRIVATE_LANE_ALREADY_EXISTS");
-    const laneId=`lane-${randomUUID()}`;
+    const laneId=existingLaneId ?? `lane-${randomUUID()}`;
     const crypto=await this.cryptoService.create(transferId,laneId);
     const lifecycle={transferId,laneId,crypto,status:"active" as const,createdAt:new Date().toISOString()};
     this.lanes.set(transferId,lifecycle);
