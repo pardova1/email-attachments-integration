@@ -6,7 +6,7 @@ import { IntegrityViolationRegistry } from "../integrity/violation-registry.js";
 import { createTransferLane, type TransferLane } from "../scaling/transfer-lane.js";
 import { DurableTransferStateService } from "./durable-transfer-state-service.js";
 
-export class TransferService {
+export interface TransferExpirationObserver {\n  onExpired(transferId: string): Promise<void>;\n}\n\nexport class TransferService {
   private readonly sessions = new Map<string, TransferSession>();
   private readonly lanes = new Map<string, TransferLane>();
   private readonly durable?: DurableTransferStateService;
