@@ -39,8 +39,11 @@ export class PrivateLaneLifecycleCoordinator {
     const existing=this.lanes.get(transferId);
     if (existing) {
       if (existing.laneId!==laneId || existing.crypto.keyReference!==keyReference) throw new Error("TRANSFER_CRYPTO_IDENTITY_MISMATCH");
+      if (status==="retired" && existing.status!=="retired") throw new Error("PRIVATE_LANE_RETIREMENT_REQUIRED");
+      if (status!=="expired" && status!=="retired") this.assertUsable(existing);
       return structuredClone(existing);
     }
+    if (status==="retired") throw new Error("PRIVATE_LANE_RETIREMENT_REQUIRED");
     const crypto=this.cryptoService.rehydrate(transferId,laneId,keyReference);
     const lifecycle={transferId,laneId,crypto,status,createdAt:new Date().toISOString()};
     this.lanes.set(transferId,lifecycle);
@@ -55,7 +58,15 @@ export class PrivateLaneLifecycleCoordinator {
   setStatus(transferId:string,status:PrivateLaneLifecycleStatus) {
     const lane=this.lanes.get(transferId);
     if (!lane) throw new Error("PRIVATE_LANE_NOT_FOUND");
+    if (lane.status===status) return;
+    if (status==="retired") throw new Error("PRIVATE_LANE_RETIREMENT_REQUIRED");
+    this.assertUsable(lane);
     lane.status=status;
+  }
+
+  private assertUsable(lane:PrivateLaneLifecycle) {
+    if (lane.status==="retired") throw new Error("PRIVATE_LANE_RETIRED");
+    if (lane.status==="expired") throw new Error("PRIVATE_LANE_EXPIRED");
   }
 
   async onExpired(transferId:string, persisted?:{laneId:string;keyReference?:string}) {
@@ -82,6 +93,7 @@ export class PrivateLaneLifecycleCoordinator {
     await this.creations.get(transferId);
     const lane=this.lanes.get(transferId);
     if (!lane || lane.status === "retired") return;
+    lane.status="expired";
     await this.cryptoService.destroy(lane.crypto);
     lane.status="retired";
   }
