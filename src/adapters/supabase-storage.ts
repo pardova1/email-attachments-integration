@@ -27,8 +27,12 @@ export class SupabaseStorage implements StoragePort {
   }
   async complete(transferId: string, totalParts: number) {
     const hash=createHash("sha256");
-    for(let n=1;n<=totalParts;n++) hash.update(await this.readPart(transferId,n));
-    return { objectKey:`supabase://${this.bucket}/${transferId}`, sha256:hash.digest("hex") };
+    let totalBytes=0;
+    for(let n=1;n<=totalParts;n++) {
+      const part=await this.readPart(transferId,n);
+      hash.update(part);totalBytes+=part.length;
+    }
+    return { objectKey:`supabase://${this.bucket}/${transferId}`, sha256:hash.digest("hex"), totalBytes };
   }
   async purge(transferId: string) {
     // The remove API takes exact object paths; a directory prefix is not recursive deletion.

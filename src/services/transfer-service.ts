@@ -133,6 +133,8 @@ export class TransferService {
     const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
     if (session.status === "complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > totalParts) throw new Error("INVALID_PART_NUMBER");
+    const expectedBytes = Math.min(session.chunkBytes, session.totalBytes - (partNumber - 1) * session.chunkBytes);
+    if (data.length !== expectedBytes) throw new Error("INVALID_PART_SIZE");
     await this.storage.putPart(id, partNumber, data);
     session.receivedParts.add(partNumber); session.status = "uploading";
     await this.persistMutation(session);
@@ -154,13 +156,14 @@ export class TransferService {
     const stored = await this.storage.complete(id, totalParts);
     try {
       assertVerifiedExact(session.originalSha256, stored.sha256);
+      if (stored.totalBytes !== session.totalBytes) throw new Error("FILE_BYTE_COUNT_MISMATCH");
     } catch {
       const violation = this.violations.report({
         transferId: session.id,
-        type: "INTEGRITY-WHOLE-FILE-MISMATCH",
+        type: stored.totalBytes !== session.totalBytes ? "INTEGRITY-SIZE-MISMATCH" : "INTEGRITY-WHOLE-FILE-MISMATCH",
         expectedSha256: session.originalSha256,
         receivedSha256: stored.sha256,
-        details: "Completed bytes do not match sender original. Transfer must be recovered and verified again."
+        details: "Completed bytes or byte count do not match sender original. Transfer must be recovered and verified again."
       });
       throw new Error(`FILE_INTEGRITY_COMMAND_VIOLATION:${violation.violationId}`);
     }

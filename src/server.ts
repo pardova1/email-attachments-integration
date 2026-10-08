@@ -32,6 +32,7 @@ import { TransferCryptoContextService } from "./security/transfer-crypto-context
 import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecycle-coordinator.js";
 import { TransferExpirationWorker } from "./services/transfer-expiration-worker.js";
 import { SenderTransferAccessService, requireSenderTransferAccess } from "./services/sender-transfer-access.js";
+import { INITIAL_MAX_TRANSFER_BYTES, MAX_CHUNK_BYTES } from "./domain/transfer.js";
 
 const app = express();
 const storage = createStorage();
@@ -103,8 +104,8 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 const createSchema = z.object({
   fileName: z.string().min(1).max(1024),
   contentType: z.string().min(1).max(255),
-  totalBytes: z.number().int().positive(),
-  chunkBytes: z.number().int().positive().optional(),
+  totalBytes: z.number().int().positive().max(INITIAL_MAX_TRANSFER_BYTES),
+  chunkBytes: z.number().int().positive().max(MAX_CHUNK_BYTES).optional(),
   senderExpirationConfirmed: z.literal(true),
   originalSha256: z.string().regex(/^[a-fA-F0-9]{64}$/)
 });
@@ -185,7 +186,7 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
     await service.ensureLoaded(String(req.params.id));
     const session = service.get(String(req.params.id));
     const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
-    const parts = verifiedDownloads.streamVerified(req.params.id, totalParts, session.originalSha256);
+    const parts = verifiedDownloads.streamVerified(req.params.id, totalParts, session.originalSha256, session.totalBytes);
     const first = await parts.next();
     res.setHeader("Content-Type", session.contentType);
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(session.fileName)}`);

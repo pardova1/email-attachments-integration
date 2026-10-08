@@ -21,15 +21,17 @@ export class MemoryStorage implements StoragePort {
     if (!transfer || transfer.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
 
     const hash = createHash("sha256");
+    let totalBytes = 0;
     for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
       const part = transfer.get(partNumber);
       if (!part) throw new Error("TRANSFER_INCOMPLETE");
       hash.update(part);
+      totalBytes += part.length;
     }
 
     const sha256 = hash.digest("hex");
     this.completed.add(transferId);
-    return { objectKey: `memory://${transferId}`, sha256 };
+    return { objectKey: `memory://${transferId}`, sha256, totalBytes };
   }
 
   async readPart(transferId: string, partNumber: number) {
