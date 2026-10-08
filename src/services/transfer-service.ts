@@ -171,21 +171,7 @@ export class TransferService {
   }
 
   private async completeOnce(id: string): Promise<CompletionResult> {
-    const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
-    if (this.durable) {
-      const latest = await this.durable.restore(id);
-      if (latest.session.status === "expired") {
-        session.status = "expired";
-        throw new Error("TRANSFER_EXPIRED");
-      }
-      session.receivedParts = latest.session.receivedParts;
-      if (latest.session.status === "complete") {
-        session.status = "complete";
-        session.downloadAvailableAt = latest.session.downloadAvailableAt;
-        session.downloadExpiresAt = latest.session.downloadExpiresAt;
-      }
-      this.get(id);
-    }
+    const session = await this.refresh(id); const totalParts = expectedPartCount(session);
     if (session.receivedParts.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
     const stored = await this.storage.complete(id, totalParts);
     try {
@@ -203,6 +189,7 @@ export class TransferService {
     }
     // Verification can take time: recheck expiration before starting any download window.
     this.get(id);
+    await this.refresh(id);
     let downloadAvailableAt = session.downloadAvailableAt ?? new Date();
     let downloadExpiresAt = session.downloadExpiresAt ?? new Date(downloadAvailableAt.getTime() + TRANSFER_EXPIRATION_MS);
     const lane = this.requireCachedLane(session.id);

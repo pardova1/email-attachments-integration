@@ -96,3 +96,47 @@ test("verification crossing upload expiry cannot start a download window",async(
  assert.equal(transfer.downloadAvailableAt,null);assert.equal(transfer.downloadExpiresAt,null);
  assert.notEqual((await repository.get(transfer.id))?.status,"available");
 });
+
+
+test("persisted upload expiry prevents verification despite a fresh cached deadline",async()=>{
+ const {storage,repository,service,transfer}=await fixture();
+ const state=(await repository.get(transfer.id))!;
+ await repository.save({...state,uploadExpiresAt:new Date(Date.now()-1).toISOString()},state.version);
+ let verifications=0;storage.complete=async()=>{verifications++;throw new Error("MUST_NOT_VERIFY");};
+ await assert.rejects(service.complete(transfer.id),/TRANSFER_EXPIRED/);
+ assert.equal(verifications,0);
+ assert.equal((await repository.get(transfer.id))?.downloadAvailableAt,undefined);
+});
+
+test("persisted expiry during verification cannot open a download window",async()=>{
+ const {storage,repository,service,transfer}=await fixture();
+ const verify=storage.complete.bind(storage);
+ storage.complete=async(id,count)=>{
+  const result=await verify(id,count);
+  const state=(await repository.get(id))!;
+  await repository.save({...state,uploadExpiresAt:new Date(Date.now()-1).toISOString()},state.version);
+  return result;
+ };
+ await assert.rejects(service.complete(transfer.id),/TRANSFER_EXPIRED/);
+ const state=(await repository.get(transfer.id))!;
+ assert.equal(state.status,"expired");
+ assert.equal(state.downloadAvailableAt,undefined);
+ assert.equal(state.downloadExpiresAt,undefined);
+});
+
+test("persisted expiry between refresh and completion save prevents publication",async()=>{
+ const {storage,repository,transfer}=await fixture();
+ const verify=storage.complete.bind(storage);
+ let verified=false;
+ storage.complete=async(id,count)=>{const result=await verify(id,count);verified=true;return result;};
+ const replacement=new TransferService(storage,undefined,repository,undefined,{async onRestored(){
+  if(!verified)return;
+  const current=(await repository.get(transfer.id))!;
+  await repository.save({...current,uploadExpiresAt:new Date(Date.now()-1).toISOString()},current.version);
+ }});
+ await assert.rejects(replacement.complete(transfer.id),/TRANSFER_EXPIRED/);
+ const state=(await repository.get(transfer.id))!;
+ assert.equal(state.status,"uploading");
+ assert.equal(state.downloadAvailableAt,undefined);
+ assert.equal(replacement.get(transfer.id).downloadAvailableAt,null);
+});
