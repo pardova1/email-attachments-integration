@@ -55,5 +55,6 @@ jobs:
           test/completed-transfer-immutability.test.ts
           test/parallel-upload-progress.test.ts
           test/recipient-download-http.test.ts
+          test/transfer-cache-refresh.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high

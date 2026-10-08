@@ -70,13 +70,8 @@ export class TransferService {
     const restored = await this.durable.restore(id);
     const activeExpiry = restored.session.downloadExpiresAt ?? restored.session.uploadExpiresAt;
     if (restored.session.status === "expired" || activeExpiry.getTime() <= Date.now()) {
-      restored.session.status = "expired";
-      await this.durable.expire(id);
-      await this.storage.purge(id);
-      await this.expirationObserver?.onExpired(id, {
-        laneId: restored.persisted.laneId,
-        keyReference: restored.persisted.keyReference
-      });
+      // Reread/version-check the deadline before cleanup: another worker may have completed meanwhile.
+      if (!await this.cleanupExpired(id)) throw new Error("TRANSFER_STATE_CHANGED_RETRY_REQUIRED");
       throw new Error("TRANSFER_EXPIRED");
     }
     await this.restoreObserver?.onRestored({
@@ -85,9 +80,11 @@ export class TransferService {
       keyReference: restored.persisted.keyReference,
       status: restored.persisted.status
     });
-    this.sessions.set(id, restored.session);
+    const session = this.sessions.get(id) ?? restored.session;
+    Object.assign(session, restored.session);
+    this.sessions.set(id, session);
     this.lanes.set(id, restored.lane);
-    return restored.session;
+    return session;
   }
 
   get(id: string) {
@@ -114,6 +111,16 @@ export class TransferService {
   async ensureLoaded(id: string) {
     if (!this.sessions.has(id)) await this.restore(id);
     return this.get(id);
+  }
+
+  async refresh(id: string) {
+    if (!this.durable) return this.ensureLoaded(id);
+    try { return await this.restore(id); }
+    catch (error) {
+      this.sessions.delete(id);
+      this.lanes.delete(id);
+      throw error;
+    }
   }
 
   async cleanupExpired(id: string, cutoff = new Date()) {
