@@ -66,6 +66,26 @@ test("preflight verification failure returns JSON before attachment headers",asy
  assert.deepEqual(await response.json(),{error:PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE});
 });
 
+test("changed first delivery chunk returns an error without file bytes",async(t)=>{
+ const {storage,url}=await fixture(t);
+ const original=storage.readPart.bind(storage);let reads=0;
+ storage.readPart=async(id,part)=>++reads===4?Buffer.from("zz"):original(id,part);
+ const response=await fetch(url);
+ assert.equal(response.status,403);assert.equal(response.headers.get("content-disposition"),null);
+ assert.deepEqual(await response.json(),{error:PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE});
+});
+
+test("changed later delivery chunk terminates the response before corrupted bytes",async(t)=>{
+ const {storage,url}=await fixture(t);
+ const original=storage.readPart.bind(storage);let reads=0,release!:()=>void;
+ const ready=new Promise<void>(resolve=>{release=resolve;});
+ storage.readPart=async(id,part)=>{if(++reads===5){await ready;return Buffer.from("zz");}return original(id,part);};
+ const response=await fetch(url),reader=response.body!.getReader();
+ assert.equal(response.status,200);
+ const first=await reader.read();assert.equal(Buffer.from(first.value!).toString(),"ab");
+ release();await assert.rejects(reader.read());
+});
+
 test("expiration during verification blocks all file bytes",async(t)=>{
  const {storage,transfer,url}=await fixture(t);
  const original=storage.readPart.bind(storage);
