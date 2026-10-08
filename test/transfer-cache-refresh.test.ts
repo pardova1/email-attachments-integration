@@ -114,3 +114,51 @@ test("completion racing conditional expiration is protected by the version check
  assert.equal(purged,false);
  assert.equal((await repository.get(transfer.id))?.status,"available");
 });
+
+
+test("stale worker rejects completed uploads before touching storage",async()=>{
+ const {storage,first,second,transfer}=await fixture();
+ await first.complete(transfer.id);
+ let writes=0;storage.putPart=async()=>{writes++;};
+ await assert.rejects(second.uploadPart(transfer.id,1,Buffer.from("x")),/TRANSFER_ALREADY_COMPLETE/);
+ assert.equal(writes,0);
+});
+
+test("stale worker rejects expired uploads before touching storage",async()=>{
+ const {storage,repository,second,transfer}=await fixture();
+ const state=(await repository.get(transfer.id))!;
+ await repository.save({...state,status:"expired"},state.version);
+ let writes=0;storage.putPart=async()=>{writes++;};
+ await assert.rejects(second.uploadPart(transfer.id,1,Buffer.from("x")),/TRANSFER_EXPIRED/);
+ assert.equal(writes,0);
+});
+
+test("upload state read failure prevents a storage write and clears the cache",async()=>{
+ const {storage,repository,second,transfer}=await fixture();
+ repository.get=async()=>{throw new Error("DATABASE_OFFLINE");};
+ let writes=0;storage.putPart=async()=>{writes++;};
+ await assert.rejects(second.uploadPart(transfer.id,1,Buffer.from("x")),/DATABASE_OFFLINE/);
+ assert.equal(writes,0);
+ assert.throws(()=>second.get(transfer.id),/TRANSFER_NOT_LOADED/);
+});
+
+test("upload crossing a persisted deadline cannot acknowledge progress",async()=>{
+ const {storage,repository,second,transfer}=await fixture();
+ const write=storage.putPart.bind(storage);
+ storage.putPart=async(id,number,bytes)=>{
+  await write(id,number,bytes);
+  const state=(await repository.get(id))!;
+  await repository.save({...state,uploadExpiresAt:new Date(Date.now()-1).toISOString()},state.version);
+ };
+ await assert.rejects(second.uploadPart(transfer.id,1,Buffer.from("x")),/TRANSFER_EXPIRED/);
+ assert.equal((await repository.get(transfer.id))?.status,"expired");
+ assert.throws(()=>second.get(transfer.id),/TRANSFER_NOT_LOADED/);
+});
+
+test("another worker completing during a storage write prevents upload acknowledgment",async()=>{
+ const {storage,first,second,transfer}=await fixture();
+ const write=storage.putPart.bind(storage);
+ storage.putPart=async(id,number,bytes)=>{await write(id,number,bytes);await first.complete(id);};
+ await assert.rejects(second.uploadPart(transfer.id,1,Buffer.from("x")),/TRANSFER_ALREADY_COMPLETE/);
+ assert.equal(second.get(transfer.id).status,"complete");
+});
