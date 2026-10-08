@@ -74,3 +74,90 @@ test("restart rehydration fails closed without a durable key reference",()=>{
   const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(vault));
   assert.throws(()=>c.restoreFromReference("t-missing","lane-persisted",""),/TRANSFER_CRYPTO_REFERENCE_REQUIRED/);
 });
+
+
+function deferred(){
+ let resolve!:()=>void;
+ const promise=new Promise<void>(done=>{resolve=done;});
+ return {promise,resolve};
+}
+
+test("overlapping creation allocates only one key and blocks competing restore",async()=>{
+ const gate=deferred();let creates=0;
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){creates++;await gate.promise;return "original-key";},async destroyKey(){}
+ }));
+ const first=c.createForSend("t","lane");
+ await assert.rejects(c.createForSend("t","other-lane"),/PRIVATE_LANE_ALREADY_EXISTS/);
+ assert.throws(()=>c.restoreFromReference("t","other-lane","other-key"),/PRIVATE_LANE_CREATION_IN_PROGRESS/);
+ gate.resolve();
+ const created=await first;
+ assert.equal(creates,1);assert.equal(created.crypto.keyReference,"original-key");
+});
+
+test("failed creation releases its reservation so a retry can succeed",async()=>{
+ let creates=0;
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){if(++creates===1)throw new Error("VAULT_OFFLINE");return "retry-key";},async destroyKey(){}
+ }));
+ await assert.rejects(c.createForSend("t","lane"),/VAULT_OFFLINE/);
+ assert.equal(c.get("t"),undefined);
+ assert.equal((await c.createForSend("t","lane")).crypto.keyReference,"retry-key");
+});
+
+test("restore rejects mismatched lane or key and preserves the original context",async()=>{
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(new MemoryTransferKeyVault()));
+ const original=await c.createForSend("t","lane");
+ assert.throws(()=>c.restoreFromReference("t","different-lane",original.crypto.keyReference),/TRANSFER_CRYPTO_IDENTITY_MISMATCH/);
+ assert.throws(()=>c.restoreFromReference("t","lane","different-key"),/TRANSFER_CRYPTO_IDENTITY_MISMATCH/);
+ assert.deepEqual(c.restoreFromReference("t","lane",original.crypto.keyReference),original);
+ assert.deepEqual(c.get("t"),original);
+});
+
+test("overlapping expiration destroys the key only once",async()=>{
+ const entered=deferred(),gate=deferred();let destroys=0;
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){return "key";},async destroyKey(){destroys++;entered.resolve();await gate.promise;}
+ }));
+ await c.createForSend("t","lane");
+ const first=c.onExpired("t");await entered.promise;
+ const second=c.onExpired("t");
+ gate.resolve();await Promise.all([first,second]);
+ assert.equal(destroys,1);assert.equal(c.get("t")?.status,"retired");
+});
+
+test("failed shared retirement can be retried without creating another key",async()=>{
+ const entered=deferred(),gate=deferred();let destroys=0;
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){return "key";},async destroyKey(){if(++destroys===1){entered.resolve();await gate.promise;throw new Error("VAULT_OFFLINE");}}
+ }));
+ await c.createForSend("t","lane");
+ const first=c.onExpired("t");await entered.promise;
+ const second=c.onExpired("t");
+ const checked=Promise.all([assert.rejects(first,/VAULT_OFFLINE/),assert.rejects(second,/VAULT_OFFLINE/)]);
+ gate.resolve();await checked;
+ assert.equal(destroys,1);assert.equal(c.get("t")?.status,"expired");
+ await c.onExpired("t");
+ assert.equal(destroys,2);assert.equal(c.get("t")?.status,"retired");
+});
+
+test("expiration waits for pending creation and retires its resulting key",async()=>{
+ const gate=deferred();const destroyed:string[]=[];
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){await gate.promise;return "pending-key";},async destroyKey(key){destroyed.push(key);}
+ }));
+ const creating=c.createForSend("t","lane");
+ const expiring=c.onExpired("t");
+ gate.resolve();await Promise.all([creating,expiring]);
+ assert.deepEqual(destroyed,["pending-key"]);assert.equal(c.get("t")?.status,"retired");
+});
+
+test("expiration rejects conflicting persisted identity before destroying a key",async()=>{
+ const destroyed:string[]=[];
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){return "local-key";},async destroyKey(key){destroyed.push(key);}
+ }));
+ await c.createForSend("t","lane");
+ await assert.rejects(c.onExpired("t",{laneId:"other-lane",keyReference:"persisted-key"}),/TRANSFER_CRYPTO_IDENTITY_MISMATCH/);
+ assert.deepEqual(destroyed,[]);assert.equal(c.get("t")?.status,"active");
+});
