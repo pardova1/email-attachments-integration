@@ -43,5 +43,8 @@ jobs:
           test/durable-transfer-state-service.test.ts
           test/transfer-service-durable-restart.test.ts
           test/transfer-expiration-persistence.test.ts
+          test/transfer-expiration-worker.test.ts
+          test/supabase-storage.test.ts
+          test/supabase-transfer-state-repository.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high

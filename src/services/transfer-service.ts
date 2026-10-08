@@ -111,6 +111,19 @@ export class TransferService {
     return this.get(id);
   }
 
+  async cleanupExpired(id: string, cutoff = new Date()) {
+    if (!this.durable) throw new Error("TRANSFER_STATE_REPOSITORY_REQUIRED");
+    const state = await this.durable.expireIfDue(id, cutoff);
+    if (!state) return false;
+    const cached = this.sessions.get(id);
+    if (cached) cached.status = "expired";
+    await this.storage.purge(id);
+    await this.expirationObserver?.onExpired(id, { laneId: state.laneId, keyReference: state.keyReference });
+    this.sessions.delete(id);
+    this.lanes.delete(id);
+    return true;
+  }
+
   async uploadPart(id: string, partNumber: number, data: Buffer) {
     const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
     if (session.status === "complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
@@ -176,6 +189,11 @@ export class TransferService {
 
   private async persistMutation(session: TransferSession) {
     if (!this.durable) return;
-    await this.durable.save(session, this.requireCachedLane(session.id));
+    try {
+      await this.durable.save(session, this.requireCachedLane(session.id));
+    } catch (error) {
+      if (error instanceof Error && error.message === "TRANSFER_EXPIRED") session.status = "expired";
+      throw error;
+    }
   }
 }

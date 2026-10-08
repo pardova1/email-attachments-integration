@@ -31,11 +31,23 @@ export class SupabaseStorage implements StoragePort {
     return { objectKey:`supabase://${this.bucket}/${transferId}`, sha256:hash.digest("hex") };
   }
   async purge(transferId: string) {
-    const response=await fetch(`${this.base}/${encodeURIComponent(this.bucket)}`,{
-      method:"DELETE",headers:{...this.headers,"Content-Type":"application/json"},
-      body:JSON.stringify({prefixes:[`${transferId}/`]})
-    });
-    if (!response.ok) throw new Error("TRANSFER_STORAGE_PURGE_FAILED");
+    // The remove API takes exact object paths; a directory prefix is not recursive deletion.
+    const prefix = `${transferId}/parts`;
+    for (;;) {
+      const listed = await fetch(`${this.base}/list/${encodeURIComponent(this.bucket)}`, {
+        method: "POST", headers: { ...this.headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ prefix, limit: 100, offset: 0, sortBy: { column: "name", order: "asc" } })
+      });
+      if (!listed.ok) throw new Error("TRANSFER_STORAGE_PURGE_FAILED");
+      const objects = await listed.json() as { name: string }[];
+      if (!objects.length) return;
+      if (objects.some(object => !/^\d+$/.test(object.name))) throw new Error("TRANSFER_STORAGE_PURGE_FAILED");
+      const response = await fetch(`${this.base}/${encodeURIComponent(this.bucket)}`, {
+        method: "DELETE", headers: { ...this.headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ prefixes: objects.map(object => `${prefix}/${object.name}`) })
+      });
+      if (!response.ok) throw new Error("TRANSFER_STORAGE_PURGE_FAILED");
+    }
   }
   private objectUrl(transferId:string,partNumber:number) {
     return `${this.base}/${encodeURIComponent(this.bucket)}/${encodeURIComponent(transferId)}/parts/${partNumber}`;
