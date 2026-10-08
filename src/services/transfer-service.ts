@@ -98,11 +98,11 @@ export class TransferService {
   }
 
   async expireIfNeeded(id: string) {
+    if (this.durable) return this.cleanupExpired(id);
     const session = this.requireCached(id);
     const activeExpiry = session.downloadExpiresAt ?? session.uploadExpiresAt;
     if (session.status !== "expired" && activeExpiry.getTime() > Date.now()) return false;
     session.status = "expired";
-    if (this.durable) await this.durable.expire(id);
     await this.storage.purge(id);
     await this.expirationObserver?.onExpired(id);
     return true;

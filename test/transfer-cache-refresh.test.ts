@@ -64,3 +64,53 @@ test("stale expired snapshot cannot purge a concurrently established download wi
  assert.equal(purged,false);
  assert.equal((await second.refresh(transfer.id)).status,"complete");
 });
+
+
+test("cached upload expiry cannot purge another worker's active download window",async()=>{
+ const {storage,repository,first,second,transfer,cached}=await fixture();
+ const completed=await first.complete(transfer.id);
+ cached.uploadExpiresAt=new Date(Date.now()-1);
+ assert.throws(()=>second.get(transfer.id),/TRANSFER_EXPIRED/);
+ let purged=false;
+ const purge=storage.purge.bind(storage);
+ storage.purge=async(id)=>{purged=true;await purge(id);};
+ assert.equal(await second.expireIfNeeded(transfer.id),false);
+ assert.equal(purged,false);
+ assert.equal((await repository.get(transfer.id))?.status,"available");
+ assert.equal((await second.refresh(transfer.id)).downloadExpiresAt?.getTime(),completed.downloadExpiresAt.getTime());
+ assert.equal((await storage.readPart(transfer.id,1)).toString(),"x");
+});
+
+test("durable expiration cleanup works without a cache and retries persisted key retirement",async()=>{
+ const {storage,repository,transfer}=await fixture();
+ const state=(await repository.get(transfer.id))!;
+ await repository.save({...state,keyReference:"saved-key",uploadExpiresAt:new Date(Date.now()-1).toISOString()},state.version);
+ let attempts=0;
+ const replacement=new TransferService(storage,undefined,repository,{async onExpired(id,crypto){
+  assert.equal(id,transfer.id);
+  assert.deepEqual(crypto,{laneId:state.laneId,keyReference:"saved-key"});
+  if(++attempts===1)throw new Error("KEY_VAULT_UNAVAILABLE");
+ }});
+ await assert.rejects(replacement.expireIfNeeded(transfer.id),/KEY_VAULT_UNAVAILABLE/);
+ assert.equal((await repository.get(transfer.id))?.status,"expired");
+ assert.equal(await replacement.expireIfNeeded(transfer.id),true);
+ assert.equal(attempts,2);
+ assert.throws(()=>replacement.get(transfer.id),/TRANSFER_NOT_LOADED/);
+});
+
+test("completion racing conditional expiration is protected by the version check",async()=>{
+ const {storage,repository,second,transfer}=await fixture();
+ const state=(await repository.get(transfer.id))!;
+ await repository.save({...state,uploadExpiresAt:new Date(Date.now()-1).toISOString()},state.version);
+ const save=repository.save.bind(repository);
+ repository.save=async(next,version)=>{
+  const current=(await repository.get(transfer.id))!;
+  const available=new Date();
+  await save({...current,status:"available",downloadAvailableAt:available.toISOString(),downloadExpiresAt:new Date(available.getTime()+4*60*60*1000).toISOString()},current.version);
+  return save(next,version);
+ };
+ let purged=false;storage.purge=async()=>{purged=true;};
+ await assert.rejects(second.expireIfNeeded(transfer.id),/TRANSFER_STATE_VERSION_CONFLICT/);
+ assert.equal(purged,false);
+ assert.equal((await repository.get(transfer.id))?.status,"available");
+});

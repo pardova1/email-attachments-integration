@@ -81,6 +81,8 @@ test("download expiry cleanup still runs after get marks the cached transfer exp
  await service.uploadPart(transfer.id,1,bytes);
  await service.complete(transfer.id);
  transfer.downloadExpiresAt=new Date(Date.now()-1000);
+ const state=(await repository.get(transfer.id))!;
+ await repository.save({...state,downloadExpiresAt:transfer.downloadExpiresAt.toISOString()},state.version);
  assert.throws(()=>service.get(transfer.id),/TRANSFER_EXPIRED/);
  assert.equal(await service.expireIfNeeded(transfer.id),true);
  assert.equal((await repository.get(transfer.id))?.status,"expired");
