@@ -24,4 +24,6 @@ The Operations Supervisor may automatically delegate pre-authorized recovery and
 
 Recipient delivery uses a stream pipeline with backpressure and bounded read-ahead. A disconnected client cancels verification or delivery before another chunk is read; a storage request already in progress may finish before cancellation is observed.
 
+Whole-file preflight also records each chunk's hash and length. Delivery rereads each chunk into an owned buffer and checks both against that verified record before yielding it. Storage changes between verification and delivery therefore cannot emit altered chunk bytes. Only hashes and lengths are retained across the verification pass; the full file is not buffered in memory. A mismatch on the first chunk returns the generic error before attachment bytes, while a later mismatch terminates the partial response.
+
 Before attachment headers or file bytes are sent, the handler checks completed state and authoritative expiration, verifies the entire file, and then rechecks expiration. Preflight failures return the generic technical-difficulties JSON response. Once bytes have started, a storage failure closes the connection rather than appending JSON to the file. An interrupted response is not successful delivery and must be retried while the recipient window remains valid.
