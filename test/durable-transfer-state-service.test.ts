@@ -25,3 +25,21 @@ test("replacement service restores same transfer lane progress and expiration",a
  assert.deepEqual([...restored.session.receivedParts],[1]);
  assert.equal(restored.session.uploadExpiresAt.toISOString(),session.uploadExpiresAt.toISOString());
 });
+
+
+for(const scenario of ["upload", "download", "invalid"] as const){
+ test(`durable save rejects ${scenario} deadline without an expired tombstone`,async()=>{
+  const repository=new MemoryTransferStateRepository();
+  const service=new DurableTransferStateService(repository);
+  const session=createTransfer({fileName:"x",contentType:"application/octet-stream",totalBytes:1,originalSha256:"a".repeat(64),senderExpirationConfirmed:true});
+  const lane=createTransferLane(session.id);
+  const original=await service.create(session,lane);
+  const expired=new Date(Date.now()-1).toISOString();
+  const current=await repository.save({...original,
+   ...(scenario==="download"?{status:"available" as const,downloadAvailableAt:expired,downloadExpiresAt:expired}:{uploadExpiresAt:scenario==="invalid"?"invalid-date":expired})
+  },original.version);
+  if(scenario==="download")session.status="complete";
+  await assert.rejects(service.save(session,lane),/TRANSFER_EXPIRED/);
+  assert.deepEqual(await repository.get(session.id),current);
+ });
+}

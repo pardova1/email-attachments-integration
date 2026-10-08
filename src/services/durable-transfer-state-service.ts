@@ -16,7 +16,8 @@ export class DurableTransferStateService {
   for(let attempt=0;attempt<3;attempt++) {
    const current=await this.repository.get(session.id);
    if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
-   if(current.status==="expired") throw new Error("TRANSFER_EXPIRED");
+   const deadline=new Date(current.downloadExpiresAt??current.uploadExpiresAt).getTime();
+   if(current.status==="expired"||!Number.isFinite(deadline)||deadline<=Date.now()) throw new Error("TRANSFER_EXPIRED");
    if(current.status==="available"||current.status==="verified") {
     if(session.status!=="complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
     return current;
