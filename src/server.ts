@@ -31,6 +31,7 @@ import { createTransferKeyVault } from "./config/transfer-key-vault-factory.js";
 import { TransferCryptoContextService } from "./security/transfer-crypto-context.js";
 import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecycle-coordinator.js";
 import { TransferExpirationWorker } from "./services/transfer-expiration-worker.js";
+import { SenderTransferAccessService, requireSenderTransferAccess } from "./services/sender-transfer-access.js";
 
 const app = express();
 const storage = createStorage();
@@ -82,6 +83,8 @@ function createLicenseRepository(): LicenseRepository {
 const signingSecret = requireProductionSecret("TOKEN_SIGNING_SECRET", "development-only-secret");
 const staffSigningSecret = requireProductionSecret("STAFF_SIGNING_SECRET", "development-staff-secret");
 const recipientAccess = new RecipientAccessService(signingSecret);
+const senderTransferAccess = new SenderTransferAccessService(signingSecret);
+const requireSenderAccess = requireSenderTransferAccess(senderTransferAccess);
 const licenses = createLicenseRepository();
 const payments = createPaymentProvider();
 const paymentApplications = createLicensePaymentApplicationRepository(licenses);
@@ -115,6 +118,7 @@ app.post("/v1/transfers", async (req, res) => {
       id: t.id,
       chunkBytes: t.chunkBytes,
       uploadExpiresAt: t.uploadExpiresAt,
+      uploadToken: senderTransferAccess.issue(t.id, t.uploadExpiresAt),
       senderNotice: senderExpirationNotice,
       recipientNotice: recipientExpirationNotice,
       uploadPartUrlTemplate: `/v1/transfers/${t.id}/parts/{partNumber}`
@@ -129,20 +133,20 @@ app.post("/v1/transfers", async (req, res) => {
   }
 });
 
-app.put("/v1/transfers/:id/parts/:partNumber", express.raw({ type: "*/*", limit: "70mb" }), async (req, res) => {
+app.put("/v1/transfers/:id/parts/:partNumber", requireSenderAccess, express.raw({ type: "*/*", limit: "70mb" }), async (req, res) => {
   try {
     const data = Buffer.from(req.body);
     const checksum = req.header("x-content-sha256");
     requireChunkSha256(data, checksum);
-    const result = await service.uploadPart(req.params.id, Number(req.params.partNumber), data);
+    const result = await service.uploadPart(String(req.params.id), Number(req.params.partNumber), data);
     res.json({ ...result, checksumVerified: true });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
   }
 });
 
-app.get("/v1/transfers/:id", async (req, res) => {
-  try { await service.ensureLoaded(req.params.id); res.json(service.status(req.params.id)); }
+app.get("/v1/transfers/:id", requireSenderAccess, async (req, res) => {
+  try { await service.ensureLoaded(String(req.params.id)); res.json(service.status(String(req.params.id))); }
   catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" }); }
 });
 
@@ -157,10 +161,10 @@ app.get("/v1/staff/transfers/:id/integrity-violations", (req, res) => {
   }
 });
 
-app.post("/v1/transfers/:id/complete", async (req, res) => {
+app.post("/v1/transfers/:id/complete", requireSenderAccess, async (req, res) => {
   try {
-    const completed = await service.complete(req.params.id);
-    const session = service.get(req.params.id);
+    const completed = await service.complete(String(req.params.id));
+    const session = service.get(String(req.params.id));
     if (!session.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
     const downloadToken = recipientAccess.issue(session.id, session.downloadExpiresAt);
     res.json({
@@ -178,8 +182,8 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
   try {
     const token = String(req.query.token ?? "");
     recipientAccess.verify(token, req.params.id);
-    await service.ensureLoaded(req.params.id);
-    const session = service.get(req.params.id);
+    await service.ensureLoaded(String(req.params.id));
+    const session = service.get(String(req.params.id));
     const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
     const parts = verifiedDownloads.streamVerified(req.params.id, totalParts, session.originalSha256);
     const first = await parts.next();
@@ -197,7 +201,10 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
-const server = app.listen(port, () => console.log(`email-attachments-integration listening on :${port}`));
+const server = app.listen(port, () => {
+  const address = server.address();
+  console.log(`email-attachments-integration listening on :${typeof address === "object" && address ? address.port : port}`);
+});
 const stopExpirationWorker = new TransferExpirationWorker(transferStateRepository, service).start(60_000, result => {
   if (!result || result.failed) console.error("TRANSFER_EXPIRATION_CLEANUP_RETRY_REQUIRED");
 });

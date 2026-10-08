@@ -46,5 +46,8 @@ jobs:
           test/transfer-expiration-worker.test.ts
           test/supabase-storage.test.ts
           test/supabase-transfer-state-repository.test.ts
+          test/security.test.ts
+          test/sender-transfer-access.test.ts
+          test/sender-transfer-http.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
