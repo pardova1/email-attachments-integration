@@ -46,6 +46,7 @@ test("durable storage hashes exact stored bytes in part order", async () => {
     await storage.putPart("t1",2,Buffer.from("world"));
     const result=await storage.complete("t1",2);
     assert.equal(result.sha256,createHash("sha256").update("hello world").digest("hex"));
+    assert.equal(result.totalBytes,11);
     assert.deepEqual(await storage.readPart("t1",2),Buffer.from("world"));
   } finally { globalThis.fetch=original; }
 });
