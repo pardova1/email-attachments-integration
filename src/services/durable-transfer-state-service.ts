@@ -36,9 +36,24 @@ export class DurableTransferStateService {
 
  async setKeyReference(transferId:string,keyReference:string) {
   if(!keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");
-  const current=await this.repository.get(transferId);
-  if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
-  return this.repository.save({...current,keyReference},current.version);
+  for(let attempt=0;attempt<3;attempt++) {
+   const current=await this.repository.get(transferId);
+   if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
+   const deadline=new Date(current.downloadExpiresAt??current.uploadExpiresAt).getTime();
+   if(current.status==="expired"||!Number.isFinite(deadline)||deadline<=Date.now()) throw new Error("TRANSFER_EXPIRED");
+   if(current.keyReference) {
+    if(current.keyReference!==keyReference) throw new Error("TRANSFER_KEY_REFERENCE_IMMUTABLE");
+    return current;
+   }
+   if(current.status==="available"||current.status==="verified") throw new Error("TRANSFER_ALREADY_COMPLETE");
+   try {
+    return await this.repository.save({...current,keyReference},current.version);
+   } catch(error) {
+    if(error instanceof Error && error.message==="TRANSFER_STATE_VERSION_CONFLICT" && attempt<2) continue;
+    throw error;
+   }
+  }
+  throw new Error("TRANSFER_STATE_VERSION_CONFLICT");
  }
 
  async expire(transferId:string) {

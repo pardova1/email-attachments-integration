@@ -43,3 +43,98 @@ for(const scenario of ["upload", "download", "invalid"] as const){
   assert.deepEqual(await repository.get(session.id),current);
  });
 }
+
+
+async function keyFixture(){
+ const repository=new MemoryTransferStateRepository(),service=new DurableTransferStateService(repository);
+ const session=createTransfer({fileName:"key.bin",contentType:"application/octet-stream",totalBytes:1,originalSha256:"a".repeat(64),senderExpirationConfirmed:true});
+ const state=await service.create(session,createTransferLane(session.id));
+ return {repository,service,state};
+}
+
+test("persisted key reference is immutable and identical retries preserve the version",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const saved=await service.setKeyReference(state.transferId,"first-key");
+ assert.deepEqual(await service.setKeyReference(state.transferId,"first-key"),saved);
+ await assert.rejects(service.setKeyReference(state.transferId,"different-key"),/TRANSFER_KEY_REFERENCE_IMMUTABLE/);
+ assert.deepEqual(await repository.get(state.transferId),saved);
+});
+
+for(const tombstone of [false,true]){
+ test(`key attachment rejects expiration with tombstone=${tombstone}`,async()=>{
+  const {repository,service,state}=await keyFixture();
+  const expired=await repository.save({...state,...(tombstone?{status:"expired" as const}:{uploadExpiresAt:new Date(Date.now()-1).toISOString()})},state.version);
+  await assert.rejects(service.setKeyReference(state.transferId,"late-key"),/TRANSFER_EXPIRED/);
+  assert.deepEqual(await repository.get(state.transferId),expired);
+ });
+}
+
+test("completed transfers accept only retries of an already attached key",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const available=new Date();
+ const completed=await repository.save({...state,status:"available",downloadAvailableAt:available.toISOString(),downloadExpiresAt:new Date(available.getTime()+60_000).toISOString()},state.version);
+ await assert.rejects(service.setKeyReference(state.transferId,"late-key"),/TRANSFER_ALREADY_COMPLETE/);
+ const keyed=await repository.save({...completed,keyReference:"original-key"},completed.version);
+ assert.deepEqual(await service.setKeyReference(state.transferId,"original-key"),keyed);
+ await assert.rejects(service.setKeyReference(state.transferId,"replacement-key"),/TRANSFER_KEY_REFERENCE_IMMUTABLE/);
+});
+
+test("key attachment retries a progress conflict without losing confirmed parts",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const save=repository.save.bind(repository);let attempts=0;
+ repository.save=async(next,version)=>{
+  if(++attempts===1)await save({...state,status:"uploading",confirmedParts:[1]},state.version);
+  return save(next,version);
+ };
+ const saved=await service.setKeyReference(state.transferId,"new-key");
+ assert.equal(attempts,2);assert.deepEqual(saved.confirmedParts,[1]);assert.equal(saved.status,"uploading");
+});
+
+test("concurrent different key attachments keep the first saved reference",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const save=repository.save.bind(repository);let attempts=0;
+ repository.save=async(next,version)=>{
+  attempts++;
+  await save({...state,keyReference:"winning-key"},state.version);
+  return save(next,version);
+ };
+ await assert.rejects(service.setKeyReference(state.transferId,"losing-key"),/TRANSFER_KEY_REFERENCE_IMMUTABLE/);
+ assert.equal(attempts,1);
+ assert.equal((await repository.get(state.transferId))?.keyReference,"winning-key");
+});
+
+test("key attachment conflict retries are bounded",async()=>{
+ const {repository,service,state}=await keyFixture();let attempts=0;
+ repository.save=async()=>{attempts++;throw new Error("TRANSFER_STATE_VERSION_CONFLICT");};
+ await assert.rejects(service.setKeyReference(state.transferId,"key"),/TRANSFER_STATE_VERSION_CONFLICT/);
+ assert.equal(attempts,3);
+ assert.equal((await repository.get(state.transferId))?.keyReference,undefined);
+});
+
+
+test("concurrent identical key attachment converges without a second write",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const save=repository.save.bind(repository);let attempts=0;
+ repository.save=async(next,version)=>{
+  attempts++;
+  await save({...state,keyReference:"shared-key"},state.version);
+  return save(next,version);
+ };
+ const saved=await service.setKeyReference(state.transferId,"shared-key");
+ assert.equal(attempts,1);assert.equal(saved.keyReference,"shared-key");
+ assert.equal(saved.version,state.version+1);
+});
+
+test("expiration winning a key attachment conflict cannot receive a late key",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const save=repository.save.bind(repository);let attempts=0;
+ repository.save=async(next,version)=>{
+  attempts++;
+  await save({...state,status:"expired"},state.version);
+  return save(next,version);
+ };
+ await assert.rejects(service.setKeyReference(state.transferId,"late-key"),/TRANSFER_EXPIRED/);
+ assert.equal(attempts,1);
+ const persisted=(await repository.get(state.transferId))!;
+ assert.equal(persisted.status,"expired");assert.equal(persisted.keyReference,undefined);
+});
