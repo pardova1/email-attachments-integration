@@ -10,6 +10,23 @@ const base = {
   updatedAt: "2026-10-06T00:01:00.000Z", version: 1
 };
 
+test("expiration scan uses bounded ordered cursor query and returns only IDs",async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async(input)=>{
+  const query=new URL(String(input)).searchParams;
+  assert.equal(query.get("select"),"transfer_id");
+  assert.equal(query.get("limit"),"100");
+  assert.equal(query.get("order"),"transfer_id.asc");
+  assert.equal(query.get("transfer_id"),"gt.cursor-id");
+  assert.equal(query.get("or"),"(status.eq.expired,and(download_expires_at.not.is.null,download_expires_at.lte.2026-10-08T09:00:00.000Z),and(download_expires_at.is.null,upload_expires_at.lte.2026-10-08T09:00:00.000Z))");
+  return new Response(JSON.stringify([{transfer_id:"next-id"}]),{status:200});
+ };
+ try{
+  const repo=new SupabaseTransferStateRepository({url:"https://example.supabase.co",secretKey:"secret"});
+  assert.deepEqual(await repo.listExpirationCandidates(new Date("2026-10-08T09:00:00Z"),100,"cursor-id"),["next-id"]);
+ }finally{globalThis.fetch=original;}
+});
+
 test("maps Supabase row back to durable transfer state", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify([{

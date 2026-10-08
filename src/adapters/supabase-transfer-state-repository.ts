@@ -1,4 +1,5 @@
 import type { PersistedTransferState, TransferStateRepository } from "../ports/transfer-state-repository.js";
+import { assertExpirationBatch } from "../ports/transfer-state-repository.js";
 
 type SupabaseTransferStateRepositoryConfig = {
   url: string;
@@ -34,6 +35,20 @@ export class SupabaseTransferStateRepository implements TransferStateRepository 
     if (!response.ok) throw new Error("TRANSFER_STATE_READ_FAILED");
     const rows = await response.json() as TransferStateRow[];
     return rows[0] ? fromRow(rows[0]) : undefined;
+  }
+
+  async listExpirationCandidates(cutoff: Date, limit: number, afterId?: string) {
+    assertExpirationBatch(cutoff, limit);
+    const timestamp = cutoff.toISOString();
+    const query = new URLSearchParams({
+      select: "transfer_id", order: "transfer_id.asc", limit: String(limit),
+      or: `(status.eq.expired,and(download_expires_at.not.is.null,download_expires_at.lte.${timestamp}),and(download_expires_at.is.null,upload_expires_at.lte.${timestamp}))`
+    });
+    if (afterId) query.set("transfer_id", `gt.${afterId}`);
+    const response = await fetch(`${this.endpoint}?${query}`, { headers: this.headers });
+    if (!response.ok) throw new Error("TRANSFER_EXPIRATION_SCAN_FAILED");
+    const rows = await response.json() as { transfer_id: string }[];
+    return rows.map(row => row.transfer_id);
   }
 
   async create(state: PersistedTransferState) {

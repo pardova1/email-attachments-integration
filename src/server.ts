@@ -16,7 +16,7 @@ import { verifyStaffToken } from "./security/staff-authorization.js";
 import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "./incidents/public-incident-notification.js";
 import { MemoryTransferStateRepository } from "./adapters/memory-transfer-state-repository.js";
 import { SupabaseTransferStateRepository } from "./adapters/supabase-transfer-state-repository.js";
-import type { TransferStateRepository } from "./ports/transfer-state-repository.js";
+import type { TransferStateRepository, TransferExpirationCandidateSource } from "./ports/transfer-state-repository.js";
 import { requireProductionConfig, requireProductionSecret } from "./config/production-secrets.js";
 import { SupabaseSenderAuthenticator } from "./security/supabase-sender-authenticator.js";
 import { VerifiedDownloadService } from "./services/verified-download-service.js";
@@ -30,6 +30,7 @@ import { createPaymentProvider } from "./config/payment-provider-factory.js";
 import { createTransferKeyVault } from "./config/transfer-key-vault-factory.js";
 import { TransferCryptoContextService } from "./security/transfer-crypto-context.js";
 import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecycle-coordinator.js";
+import { TransferExpirationWorker } from "./services/transfer-expiration-worker.js";
 
 const app = express();
 const storage = createStorage();
@@ -63,7 +64,7 @@ function createStorage(): StoragePort {
   return new MemoryStorage();
 }
 
-function createTransferStateRepository(): TransferStateRepository {
+function createTransferStateRepository(): TransferStateRepository & TransferExpirationCandidateSource {
   const url = process.env.SUPABASE_URL;
   const secretKey = process.env.SUPABASE_SECRET_KEY;
   if (url && secretKey) return new SupabaseTransferStateRepository({ url, secretKey });
@@ -196,4 +197,8 @@ app.get("/v1/transfers/:id/download", async (req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => console.log(`email-attachments-integration listening on :${port}`));
+const server = app.listen(port, () => console.log(`email-attachments-integration listening on :${port}`));
+const stopExpirationWorker = new TransferExpirationWorker(transferStateRepository, service).start(60_000, result => {
+  if (!result || result.failed) console.error("TRANSFER_EXPIRATION_CLEANUP_RETRY_REQUIRED");
+});
+server.once("close", stopExpirationWorker);

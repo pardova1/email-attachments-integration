@@ -31,3 +31,13 @@ export interface TransferStateRepository {
   create(state: PersistedTransferState): Promise<void>;
   save(state: PersistedTransferState, expectedVersion: number): Promise<PersistedTransferState>;
 }
+
+export interface TransferExpirationCandidateSource {
+  listExpirationCandidates(cutoff: Date, limit: number, afterId?: string): Promise<string[]>;
+}
+
+export function assertExpirationBatch(cutoff: Date, limit: number) {
+  if (!Number.isFinite(cutoff.getTime()) || !Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new Error("INVALID_EXPIRATION_BATCH");
+  }
+}
