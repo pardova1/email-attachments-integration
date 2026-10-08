@@ -148,7 +148,7 @@ app.put("/v1/transfers/:id/parts/:partNumber", requireSenderAccess, express.raw(
 });
 
 app.get("/v1/transfers/:id", requireSenderAccess, async (req, res) => {
-  try { await service.ensureLoaded(String(req.params.id)); res.json(service.status(String(req.params.id))); }
+  try { await service.refresh(String(req.params.id)); res.json(service.status(String(req.params.id))); }
   catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : "NOT_FOUND" }); }
 });
 

@@ -18,3 +18,11 @@ Progress saves merge the current durable confirmed-part set with newly acknowled
 Upload progress is published to the process cache only after its metadata save succeeds. A failed save leaves stored bytes available for an identical part retry without falsely acknowledging that part. Completion rereads durable confirmed parts before deciding whether every part is present, so an older worker can complete a transfer uploaded across several workers.
 
 Upload expiration is checked again after the storage write. A write that crosses the deadline does not advance confirmed progress; normal expiration cleanup removes the stored bytes. These changes preserve part receipts, not distributed worker leases or exactly-once external storage operations.
+
+## Refreshing cached transfer state
+
+Sender HTTP status requests refresh durable state before returning progress. Recipient download requests refresh before verifying the file and again before sending attachment bytes. A worker with an older cache can therefore observe completion, progress, or expiration saved by another worker without restarting or extending the recipient deadline.
+
+A refresh failure clears the process-local session and lane cache rather than serving stale data. A later successful refresh can restore the same canonical transfer. Expiration cleanup rereads and version-checks the current deadline, so an outdated upload-expiry snapshot cannot purge a newly established recipient window; that request returns a retry-required error instead.
+
+These refreshes check state at request boundaries and immediately before delivery. They do not provide a distributed lease covering the entire download stream.

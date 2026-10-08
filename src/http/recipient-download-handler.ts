@@ -7,7 +7,7 @@ import type { VerifiedDownloadService } from "../services/verified-download-serv
 import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "../incidents/public-incident-notification.js";
 
 export function createRecipientDownloadHandler(
-  transfers: Pick<TransferService, "ensureLoaded" | "get">,
+  transfers: Pick<TransferService, "refresh" | "get">,
   access: RecipientAccessService,
   downloads: VerifiedDownloadService
 ): RequestHandler {
@@ -19,13 +19,14 @@ export function createRecipientDownloadHandler(
     try {
       const id = String(req.params.id), token = String(req.query.token ?? "");
       access.verify(token, id);
-      await transfers.ensureLoaded(id);
+      await transfers.refresh(id);
       const session = transfers.get(id);
       if (session.status !== "complete" || !session.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
       access.verify(token, id, session.downloadExpiresAt);
       parts = downloads.streamVerified(id, Math.ceil(session.totalBytes / session.chunkBytes), session.originalSha256, session.totalBytes, controller.signal);
       const first = await parts.next();
       // Whole-file verification can take time; authorization must still hold before any bytes leave.
+      await transfers.refresh(id);
       const current = transfers.get(id);
       if (current.status !== "complete" || !current.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
       access.verify(token, id, current.downloadExpiresAt);

@@ -4,15 +4,18 @@ import express from "express";
 import { createHash } from "node:crypto";
 import { get as httpGet } from "node:http";
 import { MemoryStorage } from "../src/adapters/memory-storage.js";
+import { MemoryTransferStateRepository } from "../src/adapters/memory-transfer-state-repository.js";
 import { TransferService } from "../src/services/transfer-service.js";
 import { RecipientAccessService } from "../src/services/recipient-access.js";
 import { VerifiedDownloadService } from "../src/services/verified-download-service.js";
 import { createRecipientDownloadHandler } from "../src/http/recipient-download-handler.js";
 import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "../src/incidents/public-incident-notification.js";
 
-async function fixture(t: TestContext) {
- const bytes=Buffer.from("abcdef"),storage=new MemoryStorage(),service=new TransferService(storage);
- const transfer=service.create({fileName:"test.bin",contentType:"application/octet-stream",totalBytes:6,chunkBytes:2,originalSha256:createHash("sha256").update(bytes).digest("hex"),senderExpirationConfirmed:true});
+async function fixture(t: TestContext, durable=false) {
+ const bytes=Buffer.from("abcdef"),storage=new MemoryStorage(),repository=new MemoryTransferStateRepository(),service=new TransferService(storage,undefined,durable?repository:undefined);
+ const transfer=await service.createDurable({fileName:"test.bin",contentType:"application/octet-stream",totalBytes:6,chunkBytes:2,originalSha256:createHash("sha256").update(bytes).digest("hex"),senderExpirationConfirmed:true});
+ const serving=durable?new TransferService(storage,undefined,repository):service;
+ if(durable)await serving.restore(transfer.id);
  for(let n=1;n<=3;n++)await service.uploadPart(transfer.id,n,bytes.subarray((n-1)*2,n*2));
  await service.complete(transfer.id);
  const access=new RecipientAccessService("test-secret");
@@ -21,12 +24,12 @@ async function fixture(t: TestContext) {
  let closed!:()=>void;
  const disconnected=new Promise<void>(resolve=>{closed=resolve;});
  app.use((_req,res,next)=>{res.once("close",closed);next();});
- app.get("/transfers/:id/download",createRecipientDownloadHandler(service,access,new VerifiedDownloadService(storage)));
+ app.get("/transfers/:id/download",createRecipientDownloadHandler(serving,access,new VerifiedDownloadService(storage)));
  const server=app.listen(0);
  await new Promise<void>(resolve=>server.once("listening",resolve));
  const address=server.address();assert.ok(address && typeof address==="object");
  t.after(()=>{server.closeAllConnections();server.close();});
- return {storage,service,transfer,disconnected,url:`http://127.0.0.1:${address.port}/transfers/${transfer.id}/download?token=${token}`};
+ return {storage,service,repository,transfer,disconnected,url:`http://127.0.0.1:${address.port}/transfers/${transfer.id}/download?token=${token}`};
 }
 
 test("verified recipient response sends exact bytes and length",async(t)=>{
@@ -34,6 +37,25 @@ test("verified recipient response sends exact bytes and length",async(t)=>{
  const response=await fetch(url);
  assert.equal(response.status,200);assert.equal(response.headers.get("content-length"),"6");
  assert.equal(await response.text(),"abcdef");
+});
+
+test("recipient worker with stale cache observes completion from another worker",async(t)=>{
+ const {url}=await fixture(t,true);
+ const response=await fetch(url);
+ assert.equal(response.status,200);assert.equal(await response.text(),"abcdef");
+});
+
+test("remote expiration during verification blocks bytes despite a locally active session",async(t)=>{
+ const {storage,repository,transfer,url}=await fixture(t,true);
+ const original=storage.readPart.bind(storage);let expired=false;
+ storage.readPart=async(id,part)=>{
+  const bytes=await original(id,part);
+  if(!expired){expired=true;const state=(await repository.get(transfer.id))!;await repository.save({...state,status:"expired"},state.version);}
+  return bytes;
+ };
+ const response=await fetch(url);
+ assert.equal(response.status,403);assert.equal(response.headers.get("content-disposition"),null);
+ assert.deepEqual(await response.json(),{error:PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE});
 });
 
 test("preflight verification failure returns JSON before attachment headers",async(t)=>{
