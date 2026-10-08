@@ -137,13 +137,14 @@ export class TransferService {
   }
 
   async uploadPart(id: string, partNumber: number, data: Buffer) {
-    const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
+    const session = await this.refresh(id); const totalParts = expectedPartCount(session);
     if (session.status === "complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > totalParts) throw new Error("INVALID_PART_NUMBER");
     const expectedBytes = Math.min(session.chunkBytes, session.totalBytes - (partNumber - 1) * session.chunkBytes);
     if (data.length !== expectedBytes) throw new Error("INVALID_PART_SIZE");
     await this.storage.putPart(id, partNumber, data);
     if (this.get(id).status === "complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
+    if ((await this.refresh(id)).status === "complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
     const next: TransferSession = { ...session, status: "uploading", receivedParts: new Set([...session.receivedParts, partNumber]) };
     if (this.durable) {
       try {
