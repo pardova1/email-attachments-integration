@@ -161,3 +161,75 @@ test("expiration rejects conflicting persisted identity before destroying a key"
  await assert.rejects(c.onExpired("t",{laneId:"other-lane",keyReference:"persisted-key"}),/TRANSFER_CRYPTO_IDENTITY_MISMATCH/);
  assert.deepEqual(destroyed,[]);assert.equal(c.get("t")?.status,"active");
 });
+
+
+test("retired context cannot be reactivated by status or restore",async()=>{
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(new MemoryTransferKeyVault()));
+ const original=await c.createForSend("t","lane");await c.retire("t");
+ for(const status of ["active","recovering","verified"] as const){
+  assert.throws(()=>c.setStatus("t",status),/PRIVATE_LANE_RETIRED/);
+  assert.throws(()=>c.restoreFromReference("t","lane",original.crypto.keyReference,status),/PRIVATE_LANE_RETIRED/);
+ }
+ c.setStatus("t","retired");
+ assert.equal(c.get("t")?.status,"retired");
+ await c.onExpired("t",{laneId:"lane",keyReference:original.crypto.keyReference});
+ assert.equal(c.get("t")?.status,"retired");
+});
+
+test("expired context cannot resume but can still retire",async()=>{
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(new MemoryTransferKeyVault()));
+ const original=await c.createForSend("t","lane");c.setStatus("t","expired");
+ for(const status of ["active","recovering","verified"] as const){
+  assert.throws(()=>c.setStatus("t",status),/PRIVATE_LANE_EXPIRED/);
+  assert.throws(()=>c.restoreFromReference("t","lane",original.crypto.keyReference,status),/PRIVATE_LANE_EXPIRED/);
+ }
+ c.setStatus("t","expired");await c.retire("t");
+ assert.equal(c.get("t")?.status,"retired");
+});
+
+test("status setter cannot skip key destruction by marking a context retired",async()=>{
+ const destroyed:string[]=[];
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){return "key";},async destroyKey(key){destroyed.push(key);}
+ }));
+ await c.createForSend("t","lane");
+ assert.throws(()=>c.setStatus("t","retired"),/PRIVATE_LANE_RETIREMENT_REQUIRED/);
+ assert.throws(()=>c.restoreFromReference("t","lane","key","retired"),/PRIVATE_LANE_RETIREMENT_REQUIRED/);
+ assert.equal(c.get("t")?.status,"active");
+ await c.retire("t");assert.deepEqual(destroyed,["key"]);
+});
+
+test("restore cannot declare an unverified retirement without destroying the key",async()=>{
+ const destroyed:string[]=[];
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){throw new Error("MUST_NOT_CREATE");},async destroyKey(key){destroyed.push(key);}
+ }));
+ assert.throws(()=>c.restoreFromReference("t","lane","key","retired"),/PRIVATE_LANE_RETIREMENT_REQUIRED/);
+ assert.equal(c.get("t"),undefined);
+ c.restoreFromReference("t","lane","key","expired");
+ await c.retire("t");assert.deepEqual(destroyed,["key"]);
+});
+
+test("direct retirement blocks active status while key destruction is pending",async()=>{
+ const entered=deferred(),gate=deferred();
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){return "key";},async destroyKey(){entered.resolve();await gate.promise;}
+ }));
+ await c.createForSend("t","lane");const retiring=c.retire("t");await entered.promise;
+ assert.equal(c.get("t")?.status,"expired");
+ assert.throws(()=>c.setStatus("t","active"),/PRIVATE_LANE_EXPIRED/);
+ assert.throws(()=>c.restoreFromReference("t","lane","key","active"),/PRIVATE_LANE_EXPIRED/);
+ gate.resolve();await retiring;assert.equal(c.get("t")?.status,"retired");
+});
+
+test("failed direct retirement stays expired until destruction succeeds",async()=>{
+ let attempts=0;
+ const c=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService({
+  async createKey(){return "key";},async destroyKey(){if(++attempts===1)throw new Error("VAULT_OFFLINE");}
+ }));
+ await c.createForSend("t","lane");
+ await assert.rejects(c.retire("t"),/VAULT_OFFLINE/);
+ assert.equal(c.get("t")?.status,"expired");
+ assert.throws(()=>c.setStatus("t","verified"),/PRIVATE_LANE_EXPIRED/);
+ await c.retire("t");assert.equal(c.get("t")?.status,"retired");assert.equal(attempts,2);
+});
