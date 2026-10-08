@@ -33,6 +33,7 @@ import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecyc
 import { TransferExpirationWorker } from "./services/transfer-expiration-worker.js";
 import { SenderTransferAccessService, requireSenderTransferAccess } from "./services/sender-transfer-access.js";
 import { INITIAL_MAX_TRANSFER_BYTES, MAX_CHUNK_BYTES } from "./domain/transfer.js";
+import { createRecipientDownloadHandler } from "./http/recipient-download-handler.js";
 
 const app = express();
 const storage = createStorage();
@@ -179,27 +180,7 @@ app.post("/v1/transfers/:id/complete", requireSenderAccess, async (req, res) => 
   }
 });
 
-app.get("/v1/transfers/:id/download", async (req, res) => {
-  try {
-    const token = String(req.query.token ?? "");
-    recipientAccess.verify(token, req.params.id);
-    await service.ensureLoaded(String(req.params.id));
-    const session = service.get(String(req.params.id));
-    const totalParts = Math.ceil(session.totalBytes / session.chunkBytes);
-    const parts = verifiedDownloads.streamVerified(req.params.id, totalParts, session.originalSha256, session.totalBytes);
-    const first = await parts.next();
-    res.setHeader("Content-Type", session.contentType);
-    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(session.fileName)}`);
-    res.setHeader("Content-Length", String(session.totalBytes));
-    if (!first.done && !res.write(first.value)) await new Promise<void>(resolve => res.once("drain", resolve));
-    for await (const part of parts) {
-      if (!res.write(part)) await new Promise<void>(resolve => res.once("drain", resolve));
-    }
-    res.end();
-  } catch (error) {
-    res.status(403).json({ error: PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE });
-  }
-});
+app.get("/v1/transfers/:id/download", createRecipientDownloadHandler(service, recipientAccess, verifiedDownloads));
 
 const port = Number(process.env.PORT ?? 3000);
 const server = app.listen(port, () => {
