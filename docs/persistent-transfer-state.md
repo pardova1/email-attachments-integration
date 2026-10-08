@@ -11,3 +11,10 @@ Optimistic version checks prevent two workers from silently overwriting newer tr
 After a process restart, a worker can reload the transfer, reconstruct its lane/recovery context, preserve cryptographically verified progress and continue automatically. A restart must not reset the receiver's authoritative expiration timestamp or cause verified bytes to be discarded unnecessarily.
 
 **Persist → recover state → verify checkpoint → resume affected lane → final whole-file verification → ✓ VERIFIED EXACT**
+## Concurrent upload progress
+
+Progress saves merge the current durable confirmed-part set with newly acknowledged parts. Optimistic version conflicts reread the latest record and retry up to three save attempts, preserving terminal completed and expired states. Different workers uploading different parts therefore do not overwrite each other's confirmed progress.
+
+Upload progress is published to the process cache only after its metadata save succeeds. A failed save leaves stored bytes available for an identical part retry without falsely acknowledging that part. Completion rereads durable confirmed parts before deciding whether every part is present, so an older worker can complete a transfer uploaded across several workers.
+
+Upload expiration is checked again after the storage write. A write that crosses the deadline does not advance confirmed progress; normal expiration cleanup removes the stored bytes. These changes preserve part receipts, not distributed worker leases or exactly-once external storage operations.
