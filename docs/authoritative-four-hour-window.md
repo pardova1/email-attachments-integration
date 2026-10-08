@@ -14,3 +14,8 @@ At zero:
 **🔴 Transfer Expired — 00:00:00**
 
 The recipient must ask the sender to send the file again. An expired transfer is not silently reactivated by recovery logic.
+## Completion retries
+
+The first successfully persisted completion establishes the recipient availability time and expiration. Retrying completion rechecks file integrity and returns that existing window; it does not extend access. Concurrent completions in one process share verification, and competing workers use the first durable completion window.
+
+A failed metadata save publishes no new completion state or download window. A later retry can complete normally. Verification also rechecks transfer expiration before establishing availability, so an upload that expires during verification cannot start a new recipient window.

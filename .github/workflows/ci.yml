@@ -49,5 +49,6 @@ jobs:
           test/security.test.ts
           test/sender-transfer-access.test.ts
           test/sender-transfer-http.test.ts
+          test/transfer-completion-idempotency.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high

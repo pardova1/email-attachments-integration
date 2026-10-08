@@ -16,8 +16,20 @@ export class DurableTransferStateService {
   const current=await this.repository.get(session.id);
   if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
   if(current.status==="expired") throw new Error("TRANSFER_EXPIRED");
+  if(current.status==="available"||current.status==="verified") {
+   if(session.status!=="complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
+   return current;
+  }
   const next=toPersistedTransferState(session,lane.laneId,current);
-  return this.repository.save(next,current.version);
+  try {
+   return await this.repository.save(next,current.version);
+  } catch(error) {
+   if(session.status==="complete" && error instanceof Error && error.message==="TRANSFER_STATE_VERSION_CONFLICT") {
+    const completed=await this.repository.get(session.id);
+    if(completed?.status==="available"||completed?.status==="verified") return completed;
+   }
+   throw error;
+  }
  }
 
  async setKeyReference(transferId:string,keyReference:string) {
