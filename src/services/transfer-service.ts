@@ -136,8 +136,20 @@ export class TransferService {
     const expectedBytes = Math.min(session.chunkBytes, session.totalBytes - (partNumber - 1) * session.chunkBytes);
     if (data.length !== expectedBytes) throw new Error("INVALID_PART_SIZE");
     await this.storage.putPart(id, partNumber, data);
-    session.receivedParts.add(partNumber); session.status = "uploading";
-    await this.persistMutation(session);
+    if (this.get(id).status === "complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
+    const next: TransferSession = { ...session, status: "uploading", receivedParts: new Set([...session.receivedParts, partNumber]) };
+    if (this.durable) {
+      try {
+        const saved = await this.durable.save(next, this.requireCachedLane(id));
+        next.receivedParts = new Set(saved.confirmedParts);
+      } catch (error) {
+        if (error instanceof Error && error.message === "TRANSFER_EXPIRED") session.status = "expired";
+        throw error;
+      }
+    }
+    // Publish progress only after its save succeeds; preserve other local successful uploads.
+    session.receivedParts = new Set([...session.receivedParts, ...next.receivedParts]);
+    session.status = "uploading";
     return progress(session);
   }
 
@@ -152,6 +164,20 @@ export class TransferService {
 
   private async completeOnce(id: string): Promise<CompletionResult> {
     const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
+    if (this.durable) {
+      const latest = await this.durable.restore(id);
+      if (latest.session.status === "expired") {
+        session.status = "expired";
+        throw new Error("TRANSFER_EXPIRED");
+      }
+      session.receivedParts = latest.session.receivedParts;
+      if (latest.session.status === "complete") {
+        session.status = "complete";
+        session.downloadAvailableAt = latest.session.downloadAvailableAt;
+        session.downloadExpiresAt = latest.session.downloadExpiresAt;
+      }
+      this.get(id);
+    }
     if (session.receivedParts.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
     const stored = await this.storage.complete(id, totalParts);
     try {
@@ -216,13 +242,4 @@ export class TransferService {
     return lane;
   }
 
-  private async persistMutation(session: TransferSession) {
-    if (!this.durable) return;
-    try {
-      await this.durable.save(session, this.requireCachedLane(session.id));
-    } catch (error) {
-      if (error instanceof Error && error.message === "TRANSFER_EXPIRED") session.status = "expired";
-      throw error;
-    }
-  }
 }

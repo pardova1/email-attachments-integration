@@ -13,23 +13,24 @@ export class DurableTransferStateService {
  }
 
  async save(session:TransferSession,lane:TransferLane) {
-  const current=await this.repository.get(session.id);
-  if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
-  if(current.status==="expired") throw new Error("TRANSFER_EXPIRED");
-  if(current.status==="available"||current.status==="verified") {
-   if(session.status!=="complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
-   return current;
-  }
-  const next=toPersistedTransferState(session,lane.laneId,current);
-  try {
-   return await this.repository.save(next,current.version);
-  } catch(error) {
-   if(session.status==="complete" && error instanceof Error && error.message==="TRANSFER_STATE_VERSION_CONFLICT") {
-    const completed=await this.repository.get(session.id);
-    if(completed?.status==="available"||completed?.status==="verified") return completed;
+  for(let attempt=0;attempt<3;attempt++) {
+   const current=await this.repository.get(session.id);
+   if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
+   if(current.status==="expired") throw new Error("TRANSFER_EXPIRED");
+   if(current.status==="available"||current.status==="verified") {
+    if(session.status!=="complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
+    return current;
    }
-   throw error;
+   const next=toPersistedTransferState(session,lane.laneId,current);
+   next.confirmedParts=[...new Set([...current.confirmedParts,...next.confirmedParts])].sort((a,b)=>a-b);
+   try {
+    return await this.repository.save(next,current.version);
+   } catch(error) {
+    if(error instanceof Error && error.message==="TRANSFER_STATE_VERSION_CONFLICT" && attempt<2) continue;
+    throw error;
+   }
   }
+  throw new Error("TRANSFER_STATE_VERSION_CONFLICT");
  }
 
  async setKeyReference(transferId:string,keyReference:string) {
