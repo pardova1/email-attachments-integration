@@ -14,10 +14,15 @@ export interface TransferExpirationObserver {
   onExpired(transferId: string, crypto?: { laneId: string; keyReference?: string }): Promise<void>;
 }
 
+type CompletionResult = Awaited<ReturnType<StoragePort["complete"]>> & {
+  status: "complete"; verifiedExact: true; downloadAvailableAt: Date; downloadExpiresAt: Date;
+};
+
 export class TransferService {
   private readonly sessions = new Map<string, TransferSession>();
   private readonly lanes = new Map<string, TransferLane>();
   private readonly durable?: DurableTransferStateService;
+  private readonly completions = new Map<string, Promise<CompletionResult>>();
 
   constructor(
     private readonly storage: StoragePort,
@@ -135,6 +140,15 @@ export class TransferService {
   }
 
   async complete(id: string) {
+    const existing = this.completions.get(id);
+    if (existing) return existing;
+    const pending = this.completeOnce(id);
+    this.completions.set(id, pending);
+    try { return await pending; }
+    finally { this.completions.delete(id); }
+  }
+
+  private async completeOnce(id: string): Promise<CompletionResult> {
     const session = await this.ensureLoaded(id); const totalParts = expectedPartCount(session);
     if (session.receivedParts.size !== totalParts) throw new Error("TRANSFER_INCOMPLETE");
     const stored = await this.storage.complete(id, totalParts);
@@ -150,14 +164,26 @@ export class TransferService {
       });
       throw new Error(`FILE_INTEGRITY_COMMAND_VIOLATION:${violation.violationId}`);
     }
-    const downloadAvailableAt = new Date();
-    session.downloadAvailableAt = downloadAvailableAt;
-    session.downloadExpiresAt = new Date(downloadAvailableAt.getTime() + TRANSFER_EXPIRATION_MS);
-    session.status = "complete";
+    // Verification can take time: recheck expiration before starting any download window.
+    this.get(id);
+    let downloadAvailableAt = session.downloadAvailableAt ?? new Date();
+    let downloadExpiresAt = session.downloadExpiresAt ?? new Date(downloadAvailableAt.getTime() + TRANSFER_EXPIRATION_MS);
     const lane = this.requireCachedLane(session.id);
+    if (this.durable) {
+      const saved = await this.durable.save(
+        { ...session, status: "complete", downloadAvailableAt, downloadExpiresAt },
+        { ...lane, state: "complete" }
+      );
+      if (!saved.downloadAvailableAt || !saved.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
+      downloadAvailableAt = new Date(saved.downloadAvailableAt);
+      downloadExpiresAt = new Date(saved.downloadExpiresAt);
+    }
+    if (downloadExpiresAt.getTime() <= Date.now()) throw new Error("TRANSFER_EXPIRED");
+    session.downloadAvailableAt = downloadAvailableAt;
+    session.downloadExpiresAt = downloadExpiresAt;
+    session.status = "complete";
     lane.state = "complete";
-    await this.persistMutation(session);
-    return { ...stored, status: session.status, verifiedExact: true as const, downloadAvailableAt: session.downloadAvailableAt, downloadExpiresAt: session.downloadExpiresAt };
+    return { ...stored, status: "complete", verifiedExact: true, downloadAvailableAt, downloadExpiresAt };
   }
 
   lane(id: string) {
