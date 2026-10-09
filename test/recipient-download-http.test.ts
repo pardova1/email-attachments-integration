@@ -25,12 +25,15 @@ async function fixture(t: TestContext, durable=false, downloadExpiresAt?: Date) 
  let closed!:()=>void;
  const disconnected=new Promise<void>(resolve=>{closed=resolve;});
  app.use((_req,res,next)=>{res.once("close",closed);next();});
- app.get("/transfers/:id/download",createRecipientDownloadHandler(serving,access,new VerifiedDownloadService(storage)));
+ let finished!:()=>void;
+ const handled=new Promise<void>(resolve=>{finished=resolve;});
+ const handler=createRecipientDownloadHandler(serving,access,new VerifiedDownloadService(storage));
+ app.get("/transfers/:id/download",async(req,res,next)=>{try{await handler(req,res,next);}finally{finished();}});
  const server=app.listen(0);
  await new Promise<void>(resolve=>server.once("listening",resolve));
  const address=server.address();assert.ok(address && typeof address==="object");
  t.after(()=>{server.closeAllConnections();server.close();});
- return {storage,service,repository,transfer,disconnected,url:`http://127.0.0.1:${address.port}/transfers/${transfer.id}/download?token=${token}`};
+ return {storage,service,repository,transfer,disconnected,handled,url:`http://127.0.0.1:${address.port}/transfers/${transfer.id}/download?token=${token}`};
 }
 
 test("verified recipient response sends exact bytes and length",async(t)=>{
@@ -149,7 +152,7 @@ test("elapsed deadline blocks the next delivery chunk even before the timer runs
 });
 
 test("expiry timer closes a stalled partial response before its storage read resolves",async(t)=>{
- const {storage,url,disconnected}=await fixture(t,false,new Date(Date.now()+2500));
+ const {storage,url,disconnected,handled}=await fixture(t,false,new Date(Date.now()+2500));
  const read=storage.readPart.bind(storage);let reads=0,release!:()=>void;
  const ready=new Promise<void>(resolve=>{release=resolve;});
  t.after(()=>{release();});
@@ -157,8 +160,21 @@ test("expiry timer closes a stalled partial response before its storage read res
  const response=await fetch(url),reader=response.body!.getReader();
  assert.equal(response.status,200);
  assert.equal(Buffer.from((await reader.read()).value!).toString(),"ab");
- await assert.rejects(reader.read());await disconnected;
+ await assert.rejects(reader.read());await disconnected;await handled;
  assert.equal(reads,5);
  release();await new Promise<void>(resolve=>setImmediate(resolve));
  assert.equal(reads,5);
+});
+
+
+test("disconnect releases a stalled verification handler before storage returns",async(t)=>{
+ const {storage,url,disconnected,handled}=await fixture(t);
+ let entered!:()=>void,release!:()=>void;
+ const started=new Promise<void>(resolve=>{entered=resolve;});
+ const pending=new Promise<void>(resolve=>{release=resolve;});
+ t.after(()=>{release();});
+ storage.readPart=async()=>{entered();await pending;return Buffer.from("ab");};
+ const request=httpGet(url);request.on("error",()=>{});
+ await started;request.destroy();await disconnected;await handled;
+ release();
 });
