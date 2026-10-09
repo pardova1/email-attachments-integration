@@ -138,3 +138,59 @@ test("expiration winning a key attachment conflict cannot receive a late key",as
  const persisted=(await repository.get(state.transferId))!;
  assert.equal(persisted.status,"expired");assert.equal(persisted.keyReference,undefined);
 });
+
+
+test("durable progress cannot change original file metadata or upload timing",async()=>{
+ const changes={fileName:"other.bin",contentType:"text/plain",totalBytes:2,chunkBytes:1,originalSha256:"b".repeat(64),senderExpirationConfirmed:false,
+  createdAt:new Date(Date.now()-60_000),uploadExpiresAt:new Date(Date.now()+8*60*60*1000)};
+ for(const [field,value] of Object.entries(changes)){
+  const {repository,service,state}=await keyFixture();
+  const {session,lane}=await service.restore(state.transferId);
+  Object.assign(session,{[field]:value});
+  session.receivedParts.add(1);session.status="uploading";
+  await assert.rejects(service.save(session,lane),/TRANSFER_IDENTITY_IMMUTABLE/,field);
+  assert.deepEqual(await repository.get(state.transferId),state,field);
+ }
+});
+
+test("durable save rejects a replacement lane and a lane bound to another transfer",async()=>{
+ for(const patch of [{laneId:"replacement-lane"},{transferId:"other-transfer"}]){
+  const {repository,service,state}=await keyFixture();
+  const {session,lane}=await service.restore(state.transferId);
+  await assert.rejects(service.save(session,{...lane,...patch}),/TRANSFER_IDENTITY_IMMUTABLE/);
+  assert.deepEqual(await repository.get(state.transferId),state);
+ }
+});
+
+test("durable creation rejects a lane bound to another transfer",async()=>{
+ const repository=new MemoryTransferStateRepository(),service=new DurableTransferStateService(repository);
+ const session=createTransfer({fileName:"x",contentType:"application/octet-stream",totalBytes:1,originalSha256:"a".repeat(64),senderExpirationConfirmed:true});
+ await assert.rejects(service.create(session,createTransferLane("different-transfer")),/TRANSFER_IDENTITY_IMMUTABLE/);
+ assert.equal(await repository.get(session.id),undefined);
+});
+
+test("completed retries cannot bypass original identity validation",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const {session,lane}=await service.restore(state.transferId);
+ const available=new Date();
+ const completed=await repository.save({...state,status:"available",downloadAvailableAt:available.toISOString(),downloadExpiresAt:new Date(available.getTime()+60_000).toISOString()},state.version);
+ session.status="complete";session.originalSha256="b".repeat(64);
+ await assert.rejects(service.save(session,lane),/TRANSFER_IDENTITY_IMMUTABLE/);
+ assert.deepEqual(await repository.get(state.transferId),completed);
+});
+
+test("conflicting progress save cannot overwrite a changed authoritative deadline",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const {session,lane}=await service.restore(state.transferId);
+ session.receivedParts.add(1);session.status="uploading";
+ const save=repository.save.bind(repository);let attempts=0;
+ let canonical=state;
+ repository.save=async(next,version)=>{
+  attempts++;
+  canonical=await save({...state,uploadExpiresAt:new Date(Date.now()+60_000).toISOString()},state.version);
+  return save(next,version);
+ };
+ await assert.rejects(service.save(session,lane),/TRANSFER_IDENTITY_IMMUTABLE/);
+ assert.equal(attempts,1);
+ assert.deepEqual(await repository.get(state.transferId),canonical);
+});

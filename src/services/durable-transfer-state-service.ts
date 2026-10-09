@@ -7,6 +7,7 @@ export class DurableTransferStateService {
  constructor(private readonly repository:TransferStateRepository) {}
 
  async create(session:TransferSession,lane:TransferLane) {
+  if(lane.transferId!==session.id) throw new Error("TRANSFER_IDENTITY_IMMUTABLE");
   const state=toPersistedTransferState(session,lane.laneId);
   await this.repository.create(state);
   return state;
@@ -18,11 +19,13 @@ export class DurableTransferStateService {
    if(!current) throw new Error("TRANSFER_STATE_NOT_FOUND");
    const deadline=new Date(current.downloadExpiresAt??current.uploadExpiresAt).getTime();
    if(current.status==="expired"||!Number.isFinite(deadline)||deadline<=Date.now()) throw new Error("TRANSFER_EXPIRED");
+   const next=toPersistedTransferState(session,lane.laneId,current);
+   const identityFields=["transferId","laneId","fileName","contentType","totalBytes","chunkBytes","originalSha256","senderExpirationConfirmed","createdAt","uploadExpiresAt"] as const;
+   if(lane.transferId!==session.id || identityFields.some(field=>next[field]!==current[field])) throw new Error("TRANSFER_IDENTITY_IMMUTABLE");
    if(current.status==="available"||current.status==="verified") {
     if(session.status!=="complete") throw new Error("TRANSFER_ALREADY_COMPLETE");
     return current;
    }
-   const next=toPersistedTransferState(session,lane.laneId,current);
    next.confirmedParts=[...new Set([...current.confirmedParts,...next.confirmedParts])].sort((a,b)=>a-b);
    try {
     return await this.repository.save(next,current.version);
