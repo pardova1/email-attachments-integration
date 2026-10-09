@@ -1,4 +1,4 @@
-import type { TransferSession } from "../domain/transfer.js";
+import { expectedPartCount, TRANSFER_EXPIRATION_MS, type TransferSession } from "../domain/transfer.js";
 import type { TransferLane } from "../scaling/transfer-lane.js";
 import type { TransferStateRepository } from "../ports/transfer-state-repository.js";
 import { fromPersistedTransferState,toPersistedTransferState } from "../persistence/transfer-state-mapper.js";
@@ -27,6 +27,15 @@ export class DurableTransferStateService {
     return current;
    }
    next.confirmedParts=[...new Set([...current.confirmedParts,...next.confirmedParts])].sort((a,b)=>a-b);
+   if(session.status!=="complete") {
+    if(session.downloadAvailableAt!==null || session.downloadExpiresAt!==null) throw new Error("DOWNLOAD_WINDOW_BEFORE_COMPLETION");
+   } else {
+    const totalParts=expectedPartCount(session);
+    if(next.confirmedParts.length!==totalParts || next.confirmedParts.some((part,index)=>part!==index+1)) throw new Error("TRANSFER_INCOMPLETE");
+    const available=session.downloadAvailableAt?.getTime(),expires=session.downloadExpiresAt?.getTime();
+    if(available===undefined || expires===undefined) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
+    if(!Number.isFinite(available) || !Number.isFinite(expires) || available<session.createdAt.getTime() || available>Date.now() || expires-available!==TRANSFER_EXPIRATION_MS) throw new Error("INVALID_DOWNLOAD_WINDOW");
+   }
    try {
     return await this.repository.save(next,current.version);
    } catch(error) {
