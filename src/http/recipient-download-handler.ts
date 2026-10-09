@@ -16,13 +16,25 @@ export function createRecipientDownloadHandler(
     const disconnected = () => { if (!res.writableFinished) controller.abort(); };
     res.once("close", disconnected);
     let parts: AsyncGenerator<Buffer> | undefined;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const id = String(req.params.id), token = String(req.query.token ?? "");
       access.verify(token, id);
       await transfers.refresh(id);
       const session = transfers.get(id);
       if (session.status !== "complete" || !session.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
-      access.verify(token, id, session.downloadExpiresAt);
+      const claims = access.verify(token, id, session.downloadExpiresAt);
+      const deadline = Math.min(session.downloadExpiresAt.getTime(), claims.exp * 1000);
+      const assertActive = () => {
+        controller.signal.throwIfAborted();
+        if (Date.now() >= deadline) throw new Error("DOWNLOAD_WINDOW_EXPIRED");
+      };
+      assertActive();
+      expiryTimer = setTimeout(() => {
+        controller.abort();
+        if (res.headersSent) res.destroy();
+      }, deadline - Date.now());
+      expiryTimer.unref();
       parts = downloads.streamVerified(id, Math.ceil(session.totalBytes / session.chunkBytes), session.originalSha256, session.totalBytes, controller.signal);
       const first = await parts.next();
       // Whole-file verification can take time; authorization must still hold before any bytes leave.
@@ -30,14 +42,18 @@ export function createRecipientDownloadHandler(
       const current = transfers.get(id);
       if (current.status !== "complete" || !current.downloadExpiresAt) throw new Error("DOWNLOAD_WINDOW_NOT_READY");
       access.verify(token, id, current.downloadExpiresAt);
-      controller.signal.throwIfAborted();
+      assertActive();
       res.setHeader("Content-Type", session.contentType);
       res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(session.fileName)}`);
       res.setHeader("Content-Length", String(session.totalBytes));
       const remaining = parts;
       const source = Readable.from((async function* () {
+        assertActive();
         if (!first.done) yield first.value;
-        yield* remaining;
+        for await (const part of remaining) {
+          assertActive();
+          yield part;
+        }
       })(), { objectMode: false, highWaterMark: 64 * 1024 });
       await pipeline(source, res, { signal: controller.signal });
     } catch {
@@ -47,6 +63,7 @@ export function createRecipientDownloadHandler(
       res.removeHeader("Content-Disposition");
       res.status(403).json({ error: PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE });
     } finally {
+      clearTimeout(expiryTimer);
       res.off("close", disconnected);
       controller.abort();
       await parts?.return(undefined);

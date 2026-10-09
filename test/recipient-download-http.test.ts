@@ -11,13 +11,14 @@ import { VerifiedDownloadService } from "../src/services/verified-download-servi
 import { createRecipientDownloadHandler } from "../src/http/recipient-download-handler.js";
 import { PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE } from "../src/incidents/public-incident-notification.js";
 
-async function fixture(t: TestContext, durable=false) {
+async function fixture(t: TestContext, durable=false, downloadExpiresAt?: Date) {
  const bytes=Buffer.from("abcdef"),storage=new MemoryStorage(),repository=new MemoryTransferStateRepository(),service=new TransferService(storage,undefined,durable?repository:undefined);
  const transfer=await service.createDurable({fileName:"test.bin",contentType:"application/octet-stream",totalBytes:6,chunkBytes:2,originalSha256:createHash("sha256").update(bytes).digest("hex"),senderExpirationConfirmed:true});
  const serving=durable?new TransferService(storage,undefined,repository):service;
  if(durable)await serving.restore(transfer.id);
  for(let n=1;n<=3;n++)await service.uploadPart(transfer.id,n,bytes.subarray((n-1)*2,n*2));
  await service.complete(transfer.id);
+ if(downloadExpiresAt)transfer.downloadExpiresAt=downloadExpiresAt;
  const access=new RecipientAccessService("test-secret");
  const token=access.issue(transfer.id,transfer.downloadExpiresAt!);
  const app=express();
@@ -132,5 +133,32 @@ test("client disconnect after delivery starts cancels further chunk reads",async
  });request.on("error",()=>{});
  await firstByte;await disconnected;release();
  await new Promise<void>(resolve=>setImmediate(resolve));
+ assert.equal(reads,5);
+});
+
+
+test("elapsed deadline blocks the next delivery chunk even before the timer runs",async(t)=>{
+ const {storage,transfer,url}=await fixture(t);
+ const read=storage.readPart.bind(storage);let reads=0,release!:()=>void;
+ const ready=new Promise<void>(resolve=>{release=resolve;});
+ storage.readPart=async(id,part)=>{if(++reads===5)await ready;return read(id,part);};
+ const response=await fetch(url),reader=response.body!.getReader();
+ assert.equal(Buffer.from((await reader.read()).value!).toString(),"ab");
+ t.mock.method(Date,"now",()=>transfer.downloadExpiresAt!.getTime()+1);
+ release();await assert.rejects(reader.read());assert.equal(reads,5);
+});
+
+test("expiry timer closes a stalled partial response before its storage read resolves",async(t)=>{
+ const {storage,url,disconnected}=await fixture(t,false,new Date(Date.now()+2500));
+ const read=storage.readPart.bind(storage);let reads=0,release!:()=>void;
+ const ready=new Promise<void>(resolve=>{release=resolve;});
+ t.after(()=>{release();});
+ storage.readPart=async(id,part)=>{if(++reads===5)await ready;return read(id,part);};
+ const response=await fetch(url),reader=response.body!.getReader();
+ assert.equal(response.status,200);
+ assert.equal(Buffer.from((await reader.read()).value!).toString(),"ab");
+ await assert.rejects(reader.read());await disconnected;
+ assert.equal(reads,5);
+ release();await new Promise<void>(resolve=>setImmediate(resolve));
  assert.equal(reads,5);
 });
