@@ -34,7 +34,8 @@ export class MemoryStorage implements StoragePort {
     return { objectKey: `memory://${transferId}`, sha256, totalBytes };
   }
 
-  async readPart(transferId: string, partNumber: number) {
+  async readPart(transferId: string, partNumber: number, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     if (!this.completed.has(transferId)) throw new Error("TRANSFER_NOT_READY");
     const part = this.parts.get(transferId)?.get(partNumber);
     if (!part) throw new Error("TRANSFER_STORAGE_READ_FAILED");

@@ -20,8 +20,9 @@ export class SupabaseStorage implements StoragePort {
     }
     throw new Error("TRANSFER_STORAGE_WRITE_FAILED");
   }
-  async readPart(transferId: string, partNumber: number) {
-    const response = await fetch(this.objectUrl(transferId, partNumber), { headers:this.headers });
+  async readPart(transferId: string, partNumber: number, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const response = await fetch(this.objectUrl(transferId, partNumber), { headers:this.headers, signal });
     if (!response.ok) throw new Error("TRANSFER_STORAGE_READ_FAILED");
     return Buffer.from(await response.arrayBuffer());
   }

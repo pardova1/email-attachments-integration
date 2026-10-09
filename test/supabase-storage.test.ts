@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
+import { VerifiedDownloadService } from "../src/services/verified-download-service.js";
 import { SupabaseStorage } from "../src/adapters/supabase-storage.js";
 
 test("purge deletes exact chunk paths in batches without skipping remaining objects",async()=>{
@@ -58,4 +60,41 @@ test("missing durable part prevents completion", async () => {
     const storage=new SupabaseStorage("https://example.supabase.co","secret");
     await assert.rejects(storage.complete("missing",1),/TRANSFER_STORAGE_READ_FAILED/);
   } finally { globalThis.fetch=original; }
+});
+
+
+for(const phase of ["headers","body"] as const){
+ test(`download cancellation closes the storage HTTP request stalled at ${phase}`,async(t)=>{
+  let entered!:()=>void,closed!:()=>void;
+  const started=new Promise<void>(resolve=>{entered=resolve;});
+  const disconnected=new Promise<void>(resolve=>{closed=resolve;});
+  const server=createServer((req,res)=>{
+   assert.equal(req.url,"/storage/v1/object/transfer-bytes/t/parts/1");
+   res.once("close",closed);
+   if(phase==="body"){
+    res.writeHead(200,{"Content-Type":"application/octet-stream","Content-Length":"2"});
+    res.write("a");
+   }
+   entered();
+  });
+  server.listen(0);await new Promise<void>(resolve=>server.once("listening",resolve));
+  t.after(()=>{server.closeAllConnections();server.close();});
+  const address=server.address();assert.ok(address && typeof address==="object");
+  const storage=new SupabaseStorage(`http://127.0.0.1:${address.port}`,"test-secret"),controller=new AbortController();
+  const reading=phase==="headers"?storage.readPart("t",1,controller.signal):new VerifiedDownloadService(storage).verify("t",1,createHash("sha256").update("ab").digest("hex"),2,controller.signal);
+  await started;
+  controller.abort();
+  await assert.rejects(reading,{name:"AbortError"});
+  await disconnected;
+ });
+}
+
+test("already cancelled storage read makes no HTTP request",async()=>{
+ const original=globalThis.fetch,controller=new AbortController();let requests=0;
+ globalThis.fetch=async()=>{requests++;return new Response("ab");};
+ try{
+  controller.abort();
+  await assert.rejects(new SupabaseStorage("https://example.supabase.co","test-secret").readPart("t",1,controller.signal),{name:"AbortError"});
+  assert.equal(requests,0);
+ }finally{globalThis.fetch=original;}
 });

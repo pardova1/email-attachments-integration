@@ -11,7 +11,7 @@ export class VerifiedDownloadService {
       signal.addEventListener("abort",aborted,{once:true});
     });
     try {
-      return await Promise.race([this.storage.readPart(transferId,partNumber),cancellation]);
+      return await Promise.race([this.storage.readPart(transferId,partNumber,signal),cancellation]);
     } finally {
       signal.removeEventListener("abort",aborted);
     }
