@@ -194,3 +194,62 @@ test("conflicting progress save cannot overwrite a changed authoritative deadlin
  assert.equal(attempts,1);
  assert.deepEqual(await repository.get(state.transferId),canonical);
 });
+
+
+test("upload progress cannot attach a recipient deadline before completion",async()=>{
+ for(const field of ["downloadAvailableAt","downloadExpiresAt"] as const){
+  const {repository,service,state}=await keyFixture();
+  const {session,lane}=await service.restore(state.transferId);
+  session.status="uploading";session[field]=new Date(Date.now()+60_000);
+  await assert.rejects(service.save(session,lane),/DOWNLOAD_WINDOW_BEFORE_COMPLETION/);
+  assert.deepEqual(await repository.get(state.transferId),state);
+ }
+});
+
+test("first completion requires every expected part number",async()=>{
+ for(const parts of [[],[0],[2],[1,2]]){
+  const {repository,service,state}=await keyFixture();
+  const {session,lane}=await service.restore(state.transferId);
+  session.status="complete";session.receivedParts=new Set(parts);
+  session.downloadAvailableAt=new Date();session.downloadExpiresAt=new Date(session.downloadAvailableAt.getTime()+4*60*60*1000);
+  await assert.rejects(service.save(session,lane),/TRANSFER_INCOMPLETE/);
+  assert.deepEqual(await repository.get(state.transferId),state);
+ }
+});
+
+test("first completion requires both recipient window timestamps",async()=>{
+ for(const missing of ["downloadAvailableAt","downloadExpiresAt"] as const){
+  const {repository,service,state}=await keyFixture();
+  const {session,lane}=await service.restore(state.transferId);
+  session.status="complete";session.receivedParts.add(1);
+  session.downloadAvailableAt=new Date();session.downloadExpiresAt=new Date(session.downloadAvailableAt.getTime()+4*60*60*1000);
+  session[missing]=null;
+  await assert.rejects(service.save(session,lane),/DOWNLOAD_WINDOW_NOT_READY/);
+  assert.deepEqual(await repository.get(state.transferId),state);
+ }
+});
+
+test("first completion rejects backdated future and extended recipient windows",async()=>{
+ for(const scenario of ["before-creation","future","short","extended"]){
+  const {repository,service,state}=await keyFixture();
+  const {session,lane}=await service.restore(state.transferId);
+  session.status="complete";session.receivedParts.add(1);
+  const start=scenario==="before-creation"?session.createdAt.getTime()-1:scenario==="future"?Date.now()+60_000:Date.now();
+  const duration=scenario==="short"?60_000:scenario==="extended"?8*60*60*1000:4*60*60*1000;
+  session.downloadAvailableAt=new Date(start);session.downloadExpiresAt=new Date(start+duration);
+  await assert.rejects(service.save(session,lane),/INVALID_DOWNLOAD_WINDOW/,scenario);
+  assert.deepEqual(await repository.get(state.transferId),state,scenario);
+ }
+});
+
+test("completion combines authoritative and new progress into a valid fixed window",async()=>{
+ const {repository,service,state}=await keyFixture();
+ const {session,lane}=await service.restore(state.transferId);
+ await repository.save({...state,status:"uploading",confirmedParts:[1]},state.version);
+ session.status="complete";
+ session.downloadAvailableAt=new Date();session.downloadExpiresAt=new Date(session.downloadAvailableAt.getTime()+4*60*60*1000);
+ const completed=await service.save(session,lane);
+ assert.equal(completed.status,"available");assert.deepEqual(completed.confirmedParts,[1]);
+ assert.equal(completed.downloadAvailableAt,session.downloadAvailableAt.toISOString());
+ assert.equal(completed.downloadExpiresAt,session.downloadExpiresAt.toISOString());
+});
