@@ -172,3 +172,9 @@ Malformed responses remain an internal technical difficulty; the client does not
 ### Removing dangling server-side choices
 
 After filtering options against automatically detected details, form preparation removes choices whose prerequisite value is no longer offered. Canonical field order propagates that removal to later dropdowns. If a required field becomes empty, the coordinator retains its internal-retry path and does not present an unusable customer form. Removed IDs cannot be submitted later. This checks missing prerequisite values; live compatibility still requires the normal connection probes.
+
+### Request-scoped coordinator factory
+
+`createConnectionCoordinatorFactory` supplies the HTTP router's `coordinatorFor` hook. Operators provide a discovery factory, probe catalog, and shared customer-bound fallback store. Each request gets fresh discovery using a snapshot of its authenticated scope and current request context. Forms remain available across check and selection requests through the shared store; another customer still cannot submit them. No request-bound discovery coordinator is cached. Cancelled setup cannot publish a coordinator.
+
+The factory does not supply live network/provider discovery or probes. The shipped server remains unconfigured until those adapters are supplied. Forms and evidence remain in memory, so production restart/multi-instance durability and real provider testing are still required. Wire the factory as `coordinatorFor` in `createConnectionCheckRouter`, using operator-approved adapters and the application's authenticated session.
