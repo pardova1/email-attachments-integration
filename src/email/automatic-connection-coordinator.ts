@@ -1,4 +1,4 @@
-import { CustomerConnectionFallback, CONNECTION_FIELDS, type ConnectionField } from "./customer-connection-fallback.js";
+import { CustomerConnectionFallback, requireConnectionCustomerScope, CONNECTION_FIELDS, type ConnectionField } from "./customer-connection-fallback.js";
 import { GlobalConnectionReadinessAgent, type ConnectionCheck, type ConnectionEnvironment } from "./global-connection-readiness-agent.js";
 import { GlobalConnectionValidationRunner, type ConnectionProbeTool } from "./global-connection-validation-runner.js";
 
@@ -24,8 +24,10 @@ export class AutomaticConnectionCoordinator {
     private readonly readiness: GlobalConnectionReadinessAgent,
     private readonly clock = () => new Date(),
     private readonly internalTimeoutMs = 10_000,
-    private readonly fallback?: CustomerConnectionFallback
+    private readonly fallback?: CustomerConnectionFallback,
+    private readonly customerScope?:string
   ) {
+    if(fallback||customerScope!==undefined)requireConnectionCustomerScope(customerScope);
     if (!Number.isInteger(internalTimeoutMs) || internalTimeoutMs < 1 || internalTimeoutMs > 60_000) throw new Error("INVALID_AUTOMATIC_CONNECTION_POLICY");
   }
 
@@ -51,14 +53,14 @@ export class AutomaticConnectionCoordinator {
   async submitFallback(formId:string,selections:Partial<Record<ConnectionField,string>>,signal?:AbortSignal) {
     signal?.throwIfAborted();
     if(!this.fallback)throw new Error("CONNECTION_FALLBACK_NOT_CONFIGURED");
-    const selected=this.fallback.resolve(formId,selections);
+    const selected=this.fallback.resolve(this.customerScope!,formId,selections);
     const environment=this.readiness.assess(selected,this.clock()).environment;
     return this.validate(environment,`customer-selection:${formId}`,"customer-selection",signal);
   }
 
   private offerFallback(known:Partial<ConnectionEnvironment>,missing:ConnectionField[]) {
     try {
-      const form=this.fallback?.prepare(known,missing);
+      const form=this.fallback?.prepare(this.customerScope!,known,missing);
       if(form)return {status:"customer-input-required" as const,form,retryRequired:true as const};
     } catch { /* Catalog/capacity failure stays an internal retry. */ }
     return {status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};
