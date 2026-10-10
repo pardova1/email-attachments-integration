@@ -156,3 +156,9 @@ All 38 installed connection languages have a notice. These translations still re
 The form model withdraws a verified assessment when its evidence deadline is reached or the local clock/deadline is invalid. Snapshots then report unverified status, all seven required checks, and a fresh-check requirement. The original server response is retained without mutation. Withdrawal remains in effect even if the local clock moves backward; a new successful check can restore readiness.
 
 The embedded view schedules a refresh at the evidence deadline and delivers the changed assessment to the host callback. Language changes do not repeat an unchanged callback. Host applications must handle readiness withdrawal and retain server-side authorization checks before sending; browser timers alone cannot enforce transfer authorization, particularly when a device sleeps.
+
+### Returning from browser suspension
+
+The mounted form observes document visibility, window focus, and browser `pageshow` events. Returning to a visible page refreshes the model's local deadline checks, withdrawing expired verified evidence and disabling expired fallback forms even when a timer was delayed by sleep or background suspension. This also covers browser history restoration. Hidden-page events do not render unnecessary updates, and disposal removes all listeners.
+
+Lifecycle refreshes do not infer a country, alter language/selections, or initiate network probes. A new connection check is still needed to restore expired readiness. Event/model regression tests use native event targets; testing on real mobile browsers and downloadable application shells remains pending.
