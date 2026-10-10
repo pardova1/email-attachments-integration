@@ -47,7 +47,13 @@ export class CustomerConnectionFallback {
       }
       return [{...structuredClone(option),requires:remaining}];
     })]));
-    if(keys.some(key=>!options.get(key)?.length))return undefined;
+    // Automatic filtering may remove a prerequisite option. Remove dangling
+    // dependent choices in canonical order, including downstream cascades.
+    for(const key of keys){
+      const reachable=(options.get(key)??[]).filter(option=>Object.entries(option.requires??{}).every(([dependency,value])=>options.get(dependency as ConnectionField)?.some(prerequisite=>prerequisite.value===value)));
+      if(!reachable.length)return undefined;
+      options.set(key,reachable);
+    }
     const now=this.clock();
     if(!Number.isFinite(now.getTime()))throw new Error("INVALID_CONNECTION_FORM_TIME");
     for(const [id,pending] of this.forms)if(Date.parse(pending.form.expiresAt)<=now.getTime())this.forms.delete(id);

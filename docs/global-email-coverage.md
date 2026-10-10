@@ -168,3 +168,7 @@ Lifecycle refreshes do not infer a country, alter language/selections, or initia
 The authenticated client rejects duplicate or out-of-order fields, duplicate option IDs within a field, malformed country values, and dependencies on missing/later fields or unknown prerequisite values. This prevents ambiguous selections and cyclic dropdown requirements from reaching the form. IDs may repeat across different fields because submission keys distinguish them. Dependencies satisfied by automatic discovery must already have been removed by the server.
 
 Malformed responses remain an internal technical difficulty; the client does not invent replacement requirements or treat customer selections as verified readiness. This validation checks dependency structure, not live provider availability or every possible combination of catalog choices.
+
+### Removing dangling server-side choices
+
+After filtering options against automatically detected details, form preparation removes choices whose prerequisite value is no longer offered. Canonical field order propagates that removal to later dropdowns. If a required field becomes empty, the coordinator retains its internal-retry path and does not present an unusable customer form. Removed IDs cannot be submitted later. This checks missing prerequisite values; live compatibility still requires the normal connection probes.

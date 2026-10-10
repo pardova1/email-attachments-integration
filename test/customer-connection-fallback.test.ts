@@ -235,3 +235,26 @@ test("difficulty notices cover every selectable language and normalize regional 
  assert.equal(connectionDifficultyNotice("en"),PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE);
  assert.ok(Object.isFrozen(CONNECTION_DIFFICULTY_NOTICES));
 });
+
+
+test("automatic filtering removes dangling dependent options throughout the form",()=>{
+ const fallback=new CustomerConnectionFallback({
+  network:[{id:"no-net",label:"NO network",value:"no-network",requires:{country:"NO"}},{id:"se-net",label:"SE network",value:"se-network",requires:{country:"SE"}}],
+  provider:[{id:"no-mail",label:"NO mail",value:"no-mail",requires:{network:"no-network"}},{id:"se-mail",label:"SE mail",value:"se-mail",requires:{network:"se-network"}}],
+  client:[{id:"no-app",label:"NO app",value:"no-app",requires:{provider:"no-mail"}},{id:"se-app",label:"SE app",value:"se-app",requires:{provider:"se-mail"}}]
+ },()=>now);
+ const form=fallback.prepare("sender-1",{country:"NO",platform:"android",softwareVersion:"1"},["client","network","provider"])!;
+ assert.deepEqual(form.fields.map(field=>[field.key,field.options.map(option=>option.id)]),[["network",["no-net"]],["provider",["no-mail"]],["client",["no-app"]]]);
+ assert.deepEqual(form.fields[0].options[0].requires,{});
+ assert.deepEqual(fallback.resolve("sender-1",form.id,{network:"no-net",provider:"no-mail",client:"no-app"}),{country:"NO",network:"no-network",provider:"no-mail",client:"no-app",platform:"android",softwareVersion:"1"});
+ assert.throws(()=>fallback.resolve("sender-1",form.id,{network:"no-net",provider:"se-mail",client:"no-app"}),/INVALID_CONNECTION_SELECTION/);
+});
+
+test("unreachable dropdown requirements stay an internal retry instead of a customer form",async()=>{
+ const fallback=new CustomerConnectionFallback({network:[{id:"no-net",label:"Network",value:"no-net",requires:{country:"NO"}}],provider:[{id:"se-mail",label:"Mail",value:"mail",requires:{network:"se-net"}}]},()=>now);
+ const environment={country:"NO",client:"browser",platform:"android",softwareVersion:"1"};
+ assert.equal(fallback.prepare("sender-1",environment,["network","provider"]),undefined);
+ let toolCalls=0;
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:now.toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){toolCalls++;return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1");
+ const result=await coordinator.check();assert.equal(result.status,"pending-internal-retry");assert.equal(result.retryRequired,true);assert.equal(toolCalls,0);
+});
