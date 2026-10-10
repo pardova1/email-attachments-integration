@@ -67,7 +67,7 @@ test("dropdown renderer uses accessible required selects and escapes catalog lab
  assert.match(html,/<label for="country">Country<\/label>/);
  assert.match(html,/<select id="country" name="country" required>/);
  assert.match(html,/Choose an option/);assert.match(html,/Check connection/);
- assert.equal(html.includes("<script>"),false);assert.match(html,/&lt;script&gt;/);
+ assert.equal(html.includes("<script>"),false);assert.equal(html.includes('alert("x")'),false);
  for(const path of ["https://external.example","//external.example","/\\external.example"]){
   assert.throws(()=>renderConnectionFallback(form,path),/INVALID_CONNECTION_FORM_ACTION/);
  }
@@ -80,4 +80,72 @@ test("complete detection failure can offer every required dropdown from its cata
  const coordinator=new AutomaticConnectionCoordinator({async discover(){throw new Error("DISCOVERY_UNAVAILABLE");}},{async toolsFor(){return toolset();}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback);
  const result=await coordinator.check();assert.equal(result.status,"customer-input-required");
  if(result.status==="customer-input-required")assert.deepEqual(result.form.fields.map(field=>field.key),["country","network","provider","client","platform","softwareVersion"]);
+});
+
+const dependentChoices={
+ client:[{id:"browser-a",label:"Browser A",value:"a"},{id:"browser-b",label:"Browser B",value:"b"}],
+ softwareVersion:[{id:"a-1",label:"A 1",value:"1",requires:{client:"a"}},{id:"b-2",label:"B 2",value:"2",requires:{client:"b"}}]
+};
+test("detected app filters version choices and unavailable versions stay internal",()=>{
+ const fallback=new CustomerConnectionFallback(dependentChoices,()=>now);
+ const form=fallback.prepare({...known,country:"NO",client:"a"},["softwareVersion"])!;
+ assert.deepEqual(form.fields[0].options.map(option=>option.id),["a-1"]);
+ assert.equal(fallback.resolve(form.id,{softwareVersion:"a-1"}).softwareVersion,"1");
+ assert.equal(fallback.prepare({...known,country:"NO",client:"unknown"},["softwareVersion"]),undefined);
+});
+test("dependent selections reject mismatched app versions including forged submissions",()=>{
+ const fallback=new CustomerConnectionFallback(dependentChoices,()=>now);
+ const form=fallback.prepare({...known,country:"NO"},["softwareVersion","client"])!;
+ assert.deepEqual(form.fields.map(field=>field.key),["client","softwareVersion"]);
+ assert.throws(()=>fallback.resolve(form.id,{client:"browser-a",softwareVersion:"b-2"}),/INCOMPATIBLE_CONNECTION_SELECTION/);
+ assert.equal(fallback.resolve(form.id,{client:"browser-b",softwareVersion:"b-2"}).softwareVersion,"2");
+ form.fields[1].options[1].requires!.client="a";
+ assert.throws(()=>fallback.resolve(form.id,{client:"browser-a",softwareVersion:"b-2"}),/INCOMPATIBLE_CONNECTION_SELECTION/);
+});
+test("catalog rejects unknown self and forward dependencies",()=>{
+ for(const requires of [{unknown:"a"},{client:"a"},{softwareVersion:"1"}]){
+  assert.throws(()=>new CustomerConnectionFallback({client:[{id:"a",label:"A",value:"a",requires}]},()=>now),/INVALID_CONNECTION_CHOICE_CATALOG/);
+ }
+});
+
+test("language selector localizes prompts and country names with right-to-left layout",()=>{
+ const form=new CustomerConnectionFallback(choices,()=>now).prepare(known,["country"])!;
+ const html=renderConnectionFallback(form,"/connection-assistance","fa-IR");
+ assert.match(html,/<html lang="fa" dir="rtl">/);
+ assert.match(html,/id="connection-language"/);assert.match(html,/فارسی/);assert.match(html,/العربية/);
+ assert.match(html,/بررسی اتصال/);assert.match(html,/نروژ/);
+ assert.match(renderConnectionFallback(form,"/connection-assistance","sv-SE"),/<html lang="sv" dir="ltr">/);
+ assert.match(renderConnectionFallback(form,"/connection-assistance","unavailable"),/<html lang="en" dir="ltr">/);
+});
+test("language catalogs accept additional languages and safely encode translated text",async()=>{
+ const {CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ const form=new CustomerConnectionFallback(choices,()=>now).prepare(known,["country"])!;
+ const custom={ja:{...CONNECTION_TRANSLATIONS.en,language:"日本語",title:'<script>alert("x")</script>'}};
+ const html=renderConnectionFallback(form,"/connection-assistance","ja",custom);
+ assert.match(html,/<html lang="ja"/);assert.match(html,/&lt;script&gt;/);
+ assert.equal(html.includes('<script>alert("x")</script>'),false);
+ assert.throws(()=>renderConnectionFallback(form,"/connection-assistance","en",{}),/EMPTY_CONNECTION_LANGUAGE_CATALOG/);
+});
+test("changing language preserves selections and changing app clears incompatible versions",async()=>{
+ const {runInNewContext}=await import("node:vm");
+ const {CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ const form=new CustomerConnectionFallback(dependentChoices,()=>now).prepare({...known,country:"NO"},["client","softwareVersion"])!;
+ const html=renderConnectionFallback(form,"/connection-assistance");
+ function select(name:string,options:{id:string;value?:string;requires?:Record<string,string>}[]){
+  let value=options[0].id;
+  const items=options.map(option=>({value:option.id,dataset:{connectionValue:option.value,requires:JSON.stringify(option.requires??{})},disabled:false,hidden:false,textContent:"",get selected(){return value===option.id;}}));
+  return {id:name,name,options:items,get value(){return value;},set value(next:string){value=next;},get selectedOptions(){return items.filter(item=>item.selected);}};
+ }
+ const client=select("client",[{id:""},{id:"browser-a",value:"a"},{id:"browser-b",value:"b"}]);
+ const version=select("softwareVersion",[{id:""},{id:"a-1",value:"1",requires:{client:"a"}},{id:"b-2",value:"2",requires:{client:"b"}}]);
+ client.value="browser-a";version.value="a-1";
+ const listeners:Record<string,(event?:unknown)=>void>={};
+ const nodes:Record<string,any>={"connection-translations":{dataset:{packs:JSON.stringify(CONNECTION_TRANSLATIONS)}},"connection-language":{addEventListener(_name:string,fn:(event?:unknown)=>void){listeners.language=fn;}},"language-label":{},"connection-message":{},"connection-note":{},h1:{},button:{},client:{},softwareVersion:{}};
+ const uiForm={elements:{language:{value:"en"}},querySelectorAll(){return [client,version];},querySelector(){return nodes.button;},addEventListener(_name:string,fn:(event?:unknown)=>void){listeners.change=fn;}};
+ const document={documentElement:{lang:"en",dir:"ltr"},title:"",getElementById(id:string){return nodes[id];},querySelector(selector:string){return selector==="form"?uiForm:selector==="h1"?nodes.h1:nodes[selector.match(/for="([^"]+)"/)![1]];}};
+ runInNewContext(html.match(/<script type="module">([\s\S]*?)<\/script>/)![1],{document,Intl});
+ listeners.language({target:{value:"fa"}});
+ assert.equal(document.documentElement.dir,"rtl");assert.equal(client.value,"browser-a");assert.equal(version.value,"a-1");
+ client.value="browser-b";listeners.change();
+ assert.equal(version.value,"");assert.equal(version.options[1].disabled,true);assert.equal(version.options[2].disabled,false);
 });
