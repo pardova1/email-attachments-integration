@@ -79,3 +79,27 @@ test("already cancelled validation invokes no probe",async()=>{
  await assert.rejects(new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),configured).run(environment,controller.signal),{name:"AbortError"});
  assert.equal(calls,0);
 });
+
+test("probe-specific deadlines shorten saved evidence and cannot extend default validity",async()=>{
+ const start=new Date("2026-10-10T00:00:00Z");
+ for(const lifetime of [1000,60*60*1000]){
+  const configured=tools();configured.upload.run=async()=>({outcome:"passed",testReference:"deadline",validUntil:new Date(start.getTime()+lifetime).toISOString()});
+  const result=await new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),configured,10_000,15*60*1000,()=>start).run(environment);
+  assert.equal(result.assessment.status,"verified");assert.equal(result.assessment.expiresAt,new Date(start.getTime()+Math.min(lifetime,15*60*1000)).toISOString());
+ }
+});
+test("malformed or already expired probe deadlines cannot establish readiness",async()=>{
+ const start=new Date("2026-10-10T00:00:00Z");
+ for(const validUntil of ["invalid",start.toISOString(),new Date(start.getTime()-1).toISOString()]){
+  const configured=tools();configured.upload.run=async()=>({outcome:"passed",testReference:"invalid-deadline",validUntil});
+  const result=await new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),configured,10_000,15*60*1000,()=>start).run(environment);
+  assert.equal(result.assessment.status,"not-ready");assert.ok(result.assessment.requiredChecks.includes("upload"));
+ }
+});
+test("evidence that expires during later checks stays unverified at completion",async()=>{
+ const start=new Date("2026-10-10T00:00:00Z");let current=start;
+ const configured=tools();configured.upload.run=async()=>({outcome:"passed",testReference:"short-lived",validUntil:new Date(start.getTime()+1000).toISOString()});
+ configured["file-integrity"].run=async()=>{current=new Date(start.getTime()+1000);return {outcome:"passed",testReference:"later-check"};};
+ const result=await new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),configured,10_000,15*60*1000,()=>current).run(environment);
+ assert.equal(result.assessment.status,"unverified");assert.ok(result.assessment.reasons.includes("EVIDENCE_EXPIRED"));
+});

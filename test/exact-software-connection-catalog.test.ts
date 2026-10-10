@@ -89,3 +89,16 @@ test("built-in provider references guide unknown environments without declaring 
  assert.equal(catalog.references.forCountry("IR").entries[0].name,"Gmail / Google Workspace");
  assert.throws(()=>catalog.references.forCountry("worldwide"),/INVALID_REFERENCE_COUNTRY/);
 });
+test("saved readiness expires with its exact software profile rather than the default evidence lifetime",async()=>{
+ let current=now;const input=profile(),catalog=new ExactSoftwareConnectionCatalog([input],()=>current),agent=new GlobalConnectionReadinessAgent();
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:current.toISOString(),sourceReference:"synthetic"};}},catalog,agent,()=>current);
+ const result=await coordinator.check();if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");
+ assert.equal(result.validation.assessment.status,"verified");assert.equal(result.validation.assessment.expiresAt,input.expiresAt);
+ current=new Date(input.expiresAt);assert.equal(agent.assess(environment,current).status,"unverified");
+});
+test("profile cannot extend a probe's shorter evidence deadline",async()=>{
+ const input=profile(),deadline=new Date(now.getTime()+1000).toISOString();
+ input.tools.upload={id:"short-lived",async run(){return {outcome:"passed",testReference:"short-lived",validUntil:deadline};}};
+ const catalog=new ExactSoftwareConnectionCatalog([input],()=>now),tools=await catalog.toolsFor(environment,new AbortController().signal);
+ assert.equal((await tools.upload!.run(environment,new AbortController().signal)).validUntil,deadline);
+});
