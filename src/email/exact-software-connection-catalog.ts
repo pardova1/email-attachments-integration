@@ -75,7 +75,13 @@ export class ExactSoftwareConnectionCatalog implements ConnectionToolCatalog {
         probeSignal.throwIfAborted();
         const completed=this.clock().getTime();
         if(!Number.isFinite(completed)||Date.parse(profile.expiresAt)<=completed||Date.parse(profile.reviewedAt)>completed||this.profiles.get(this.key(profile.environment))!==profile)throw new Error("SOFTWARE_PROFILE_EXPIRED_OR_REPLACED");
-        return result;
+        if(result.validUntil!==undefined){
+          const deadline=typeof result.validUntil==="string"?Date.parse(result.validUntil):NaN;
+          // Keep malformed deadlines visible to the runner so the check fails.
+          if(!Number.isFinite(deadline))return result;
+          return {...result,validUntil:new Date(Math.min(deadline,Date.parse(profile.expiresAt))).toISOString()};
+        }
+        return {...result,validUntil:profile.expiresAt};
       }};
     }
     return tools;

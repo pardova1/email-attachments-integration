@@ -4,6 +4,8 @@ export interface ConnectionProbeResult {
   outcome: "passed" | "failed" | "restricted";
   testReference: string;
   recipientNeedsInstallation?: boolean;
+  // Successful evidence must not outlive a tool/profile-specific deadline.
+  validUntil?: string;
 }
 export interface ConnectionProbeTool {
   id: string;
@@ -36,6 +38,7 @@ export class GlobalConnectionValidationRunner {
     const normalized = this.agent.assess(environment, started).environment;
     const checks: ConnectionEvidence["checks"] = [];
     const missingTools: ConnectionCheck[] = [];
+    let evidenceExpiresAt=started.getTime()+this.evidenceLifetimeMs;
     let recipientNeedsInstallation: ConnectionEvidence["recipientNeedsInstallation"] = "unknown";
     for (const check of REQUIRED_CONNECTION_CHECKS) {
       signal?.throwIfAborted();
@@ -44,6 +47,11 @@ export class GlobalConnectionValidationRunner {
       try {
         const result = await this.probe(tool, normalized, signal);
         if (!result || !["passed", "failed", "restricted"].includes(result.outcome) || typeof result.testReference !== "string" || !result.testReference.trim()) throw new Error("INVALID_PROBE_RESULT");
+        if(result.validUntil!==undefined){
+          const deadline=typeof result.validUntil==="string"?Date.parse(result.validUntil):NaN;
+          if(!Number.isFinite(deadline)||deadline<=started.getTime())throw new Error("INVALID_PROBE_EVIDENCE_DEADLINE");
+          evidenceExpiresAt=Math.min(evidenceExpiresAt,deadline);
+        }
         checks.push({ check, outcome: result.outcome, testReference: `${tool.id}:${result.testReference}` });
         if (check === "recipient-download" && typeof result.recipientNeedsInstallation === "boolean") recipientNeedsInstallation = result.recipientNeedsInstallation;
       } catch {
@@ -53,7 +61,7 @@ export class GlobalConnectionValidationRunner {
     }
     signal?.throwIfAborted();
     const reviewed = this.clock();
-    this.agent.record({ environment: normalized, checkedAt: started.toISOString(), expiresAt: new Date(started.getTime() + this.evidenceLifetimeMs).toISOString(), recipientNeedsInstallation, checks }, reviewed);
+    this.agent.record({ environment: normalized, checkedAt: started.toISOString(), expiresAt: new Date(evidenceExpiresAt).toISOString(), recipientNeedsInstallation, checks }, reviewed);
     return { assessment: this.agent.assess(normalized, reviewed), missingTools };
   }
 
