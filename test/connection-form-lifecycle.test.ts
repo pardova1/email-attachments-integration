@@ -29,3 +29,25 @@ test("a document without a window still reconciles visibility changes",()=>{
  page.visibilityState="hidden";page.dispatchEvent(new Event("visibilitychange"));assert.equal(refreshes,0);
  page.visibilityState="visible";page.dispatchEvent(new Event("visibilitychange"));assert.equal(refreshes,1);stop();
 });
+
+
+test("offline and online events withdraw readiness even while the page is hidden",async()=>{
+ const page=new Page(),window=new EventTarget();let requests=0;
+ const model=new ConnectionFormModel({async check(){requests++;return verified();},async submit(){return verified();}},"ar",()=>new Date("2026-10-10T12:00:30Z"));await model.check();
+ const stop=observeConnectionFormLifecycle(page,window,()=>model.refresh(),()=>model.invalidateConnection());page.visibilityState="hidden";window.dispatchEvent(new Event("offline"));
+ const result=model.state().result;if(result?.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");assert.equal(result.validation.assessment.status,"unverified");assert.deepEqual(result.validation.assessment.reasons,["CONNECTION_CHANGED"]);
+ window.dispatchEvent(new Event("online"));assert.equal(model.state().result?.retryRequired,true);assert.equal(requests,1);assert.equal(model.state().language,"ar");
+ await model.check();assert.equal(model.state().result?.retryRequired,false);assert.equal(requests,2);
+ stop();window.dispatchEvent(new Event("offline"));assert.equal(model.state().result?.retryRequired,false);model.dispose();
+});
+test("connection changes abort pending checks and ignore late verified replies",async()=>{
+ let finish!:(result:ConnectionClientResult)=>void,signal:AbortSignal|undefined;
+ const model=new ConnectionFormModel({async check(_input,current){signal=current;return new Promise(resolve=>{finish=resolve;});},async submit(){return verified();}},"en",()=>new Date("2026-10-10T12:00:30Z"));
+ const pending=model.check();model.invalidateConnection();assert.equal(signal?.aborted,true);finish(verified());await pending;
+ assert.equal(model.state().phase,"unavailable");assert.equal(model.state().result,undefined);
+});
+test("connection changes discard fallback choices tied to the previous network",async()=>{
+ const result:ConnectionClientResult={status:"customer-input-required",retryRequired:true,language:"en",direction:"ltr",languageOptions:[{tag:"en",label:"English"}],form:{id:"11111111-1111-4111-8111-111111111111",message:"Choose",expiresAt:"2026-10-10T12:01:00Z",fields:[{key:"country",label:"Country",options:[{id:"no",label:"Norway",value:"NO"}]}]}};
+ let submissions=0;const model=new ConnectionFormModel({async check(){return result;},async submit(){submissions++;return verified();}},"fa",()=>new Date("2026-10-10T12:00:30Z"));await model.check();model.choose("country","no");assert.equal(model.state().canSubmit,true);
+ model.invalidateConnection();assert.deepEqual(model.state().selections,{});assert.equal(model.state().result,undefined);await assert.rejects(model.submit(),/CONNECTION_FORM_NOT_READY/);assert.equal(submissions,0);
+});

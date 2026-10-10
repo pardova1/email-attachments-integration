@@ -178,3 +178,9 @@ After filtering options against automatically detected details, form preparation
 `createConnectionCoordinatorFactory` supplies the HTTP router's `coordinatorFor` hook. Operators provide a discovery factory, probe catalog, and shared customer-bound fallback store. Each request gets fresh discovery using a snapshot of its authenticated scope and current request context. Forms remain available across check and selection requests through the shared store; another customer still cannot submit them. No request-bound discovery coordinator is cached. Cancelled setup cannot publish a coordinator.
 
 The factory does not supply live network/provider discovery or probes. The shipped server remains unconfigured until those adapters are supplied. Forms and evidence remain in memory, so production restart/multi-instance durability and real provider testing are still required. Wire the factory as `coordinatorFor` in `createConnectionCheckRouter`, using operator-approved adapters and the application's authenticated session.
+
+### Connectivity interruptions
+
+The mounted form also observes browser `offline` and `online` events. Either event withdraws a prior verified assessment, cancels pending checks/submissions, and ignores their late replies. Returning online does not restore old evidence. A fresh successful check is required. Fallback choices tied to the prior context are discarded so they cannot be submitted after an interruption. These events are handled even while the page is hidden, and disposal removes their listeners.
+
+Browser connectivity events are hints, not live provider probes. They do not identify countries or detect every network change (for example, changing networks while remaining online). Server-side validation and live provider testing remain necessary. No automatic retry loop is introduced.

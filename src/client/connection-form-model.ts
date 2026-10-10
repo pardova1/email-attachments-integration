@@ -18,7 +18,7 @@ export class ConnectionFormModel {
  private generation=0;
  private controller?:AbortController;
  private disposed=false;
- private readinessWithdrawn=false;
+ private readinessWithdrawalReason?:string;
  private readonly listeners=new Set<(state:ConnectionFormState)=>void>();
  constructor(private readonly client:Pick<ConnectionCheckClient,"check"|"submit">,language="en",private readonly clock=()=>new Date()) {this.language=selectConnectionLanguage(language);}
  state():ConnectionFormState {
@@ -28,10 +28,10 @@ export class ConnectionFormModel {
   const result=structuredClone(this.result);
   if(result?.status==="assessed"&&result.validation.assessment.status==="verified"){
    const assessment=result.validation.assessment,deadline=Date.parse(assessment.expiresAt??"");
-   if(this.readinessWithdrawn||!Number.isFinite(now)||!Number.isFinite(deadline)||deadline<=now){
-    this.readinessWithdrawn=true;
+   if(this.readinessWithdrawalReason||!Number.isFinite(now)||!Number.isFinite(deadline)||deadline<=now){
+    this.readinessWithdrawalReason??="EVIDENCE_EXPIRED";
     assessment.status="unverified";assessment.requiredChecks=["application-installation","dns-tls","email-delivery","attachment-integration","upload","recipient-download","file-integrity"];
-    assessment.reasons=["EVIDENCE_EXPIRED"];result.retryRequired=true;
+    assessment.reasons=[this.readinessWithdrawalReason];result.retryRequired=true;
    }
   }
   return structuredClone({phase:this.phase,language:this.language,result,selections:this.selections,expired,canSubmit:this.phase==="choosing"&&!expired&&complete});
@@ -62,6 +62,12 @@ export class ConnectionFormModel {
   try{const result=await this.client.submit({formId,selections,language:this.language},this.controller!.signal);this.finish(token,result);}
   catch{if(this.current(token)){this.phase="unavailable";this.emit();}}
  }
+ invalidateConnection(){
+  this.active();this.generation++;this.controller?.abort();this.readinessWithdrawalReason="CONNECTION_CHANGED";this.selections={};
+  if(this.result?.status==="assessed")this.phase="assessed";
+  else {this.result=undefined;this.phase="unavailable";}
+  this.emit();
+ }
  refresh(){this.active();this.emit();}
  dispose(){if(this.disposed)return;this.disposed=true;this.generation++;this.controller?.abort();this.listeners.clear();}
  private available(requires?:Partial<Record<Field,string>>){
@@ -71,7 +77,7 @@ export class ConnectionFormModel {
  }
  private begin(phase:ConnectionFormState["phase"]){this.controller?.abort();this.controller=new AbortController();this.phase=phase;return ++this.generation;}
  private current(token:number){return !this.disposed&&this.generation===token;}
- private finish(token:number,result:ConnectionClientResult){if(!this.current(token))return;this.result=structuredClone(result);this.readinessWithdrawn=false;this.selections={};this.phase=result.status==="customer-input-required"?"choosing":result.status==="assessed"?"assessed":"unavailable";this.emit();}
+ private finish(token:number,result:ConnectionClientResult){if(!this.current(token))return;this.result=structuredClone(result);this.readinessWithdrawalReason=undefined;this.selections={};this.phase=result.status==="customer-input-required"?"choosing":result.status==="assessed"?"assessed":"unavailable";this.emit();}
  private active(){if(this.disposed)throw new Error("CONNECTION_FORM_DISPOSED");}
  private emit(){for(const listener of this.listeners)listener(this.state());}
 }
