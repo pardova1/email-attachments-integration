@@ -1,5 +1,6 @@
 import {z} from "zod";
-const field=z.enum(["country","network","provider","client","platform","softwareVersion"]);
+const fields=["country","network","provider","client","platform","softwareVersion"] as const;
+const field=z.enum(fields);
 const check=z.enum(["application-installation","dns-tls","email-delivery","attachment-integration","upload","recipient-download","file-integrity"]);
 const text=z.string().min(1);
 const details=z.object({country:text,network:text,provider:text,client:text,platform:text,softwareVersion:text});
@@ -68,7 +69,10 @@ export class ConnectionCheckClient {
     const result=parsed.data,now=this.clock().getTime();
     if(!Number.isFinite(now))throw new ConnectionClientError("INVALID_RESPONSE");
     if(response.status===503&&result.status!=="pending-internal-retry")throw new ConnectionClientError("INVALID_RESPONSE");
-    if(result.status==="customer-input-required"&&(!Number.isFinite(Date.parse(result.form.expiresAt))||Date.parse(result.form.expiresAt)<=now))throw new ConnectionClientError("INVALID_RESPONSE");
+    if(result.status==="customer-input-required"){
+     if(!Number.isFinite(Date.parse(result.form.expiresAt))||Date.parse(result.form.expiresAt)<=now)throw new ConnectionClientError("INVALID_RESPONSE");
+     validateFallbackChoices(result.form);
+    }
     if(result.status==="assessed"){
      const assessment=result.validation.assessment,verified=assessment.status==="verified";
      if(result.retryRequired===verified)throw new ConnectionClientError("INVALID_RESPONSE");
@@ -78,5 +82,24 @@ export class ConnectionCheckClient {
    })(),cancelled]);
   }catch(error){signal.throwIfAborted();if(error instanceof ConnectionClientError)throw error;throw new ConnectionClientError("CHECK_UNAVAILABLE");}
   finally{clearTimeout(timer);signal.removeEventListener("abort",aborted);if(reader){void reader.cancel().catch(()=>{});try{reader.releaseLock();}catch{/* Pending cancelled read. */}}else if(responseBody)void responseBody.cancel().catch(()=>{});}
+ }
+}
+
+// Dependents may refer only to earlier fields actually offered by this form.
+// Requirements already satisfied by discovery are removed by the server.
+function validateFallbackChoices(form:Extract<ConnectionClientResult,{status:"customer-input-required"}>["form"]){
+ const seen=new Map<string,Set<string>>();let previous=-1;
+ for(const item of form.fields){
+  const index=fields.indexOf(item.key);
+  if(index<=previous)throw new ConnectionClientError("INVALID_RESPONSE");
+  previous=index;const ids=new Set<string>(),values=new Set<string>();
+  for(const choice of item.options){
+   if(ids.has(choice.id)||item.key==="country"&&!/^[A-Z]{2}$/.test(choice.value))throw new ConnectionClientError("INVALID_RESPONSE");
+   ids.add(choice.id);values.add(choice.value);
+   for(const [dependency,value] of Object.entries(choice.requires??{})){
+    if(!seen.get(dependency)?.has(value))throw new ConnectionClientError("INVALID_RESPONSE");
+   }
+  }
+  seen.set(item.key,values);
  }
 }

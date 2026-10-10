@@ -162,3 +162,9 @@ The embedded view schedules a refresh at the evidence deadline and delivers the 
 The mounted form observes document visibility, window focus, and browser `pageshow` events. Returning to a visible page refreshes the model's local deadline checks, withdrawing expired verified evidence and disabling expired fallback forms even when a timer was delayed by sleep or background suspension. This also covers browser history restoration. Hidden-page events do not render unnecessary updates, and disposal removes all listeners.
 
 Lifecycle refreshes do not infer a country, alter language/selections, or initiate network probes. A new connection check is still needed to restore expired readiness. Event/model regression tests use native event targets; testing on real mobile browsers and downloadable application shells remains pending.
+
+### Validating dropdown dependencies on the client
+
+The authenticated client rejects duplicate or out-of-order fields, duplicate option IDs within a field, malformed country values, and dependencies on missing/later fields or unknown prerequisite values. This prevents ambiguous selections and cyclic dropdown requirements from reaching the form. IDs may repeat across different fields because submission keys distinguish them. Dependencies satisfied by automatic discovery must already have been removed by the server.
+
+Malformed responses remain an internal technical difficulty; the client does not invent replacement requirements or treat customer selections as verified readiness. This validation checks dependency structure, not live provider availability or every possible combination of catalog choices.

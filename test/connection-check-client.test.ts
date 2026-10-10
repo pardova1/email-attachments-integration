@@ -68,3 +68,24 @@ test("timeouts and cancellation release pending tokens and body streams",async()
 test("client configuration rejects plaintext credentials and query secrets",()=>{
  for(const url of ["http://app.example/v1/connection","https://user:secret@app.example/v1/connection","https://app.example/v1/connection?token=secret","https://app.example/other"]){assert.throws(()=>new ConnectionCheckClient(url,async()=>"token"),/INVALID_CONNECTION_CLIENT_CONFIGURATION/);}
 });
+
+
+test("client rejects duplicate fields and ambiguous option identifiers",async()=>{
+ const duplicateField=fallback();duplicateField.form.fields.push(structuredClone(duplicateField.form.fields[0]));
+ const duplicateId=fallback();duplicateId.form.fields[0].options.push({...duplicateId.form.fields[0].options[0],value:"NO"});
+ const invalidCountry=fallback();invalidCountry.form.fields[0].options[0].value="Kuwait";
+ for(const malformed of [duplicateField,duplicateId,invalidCountry])await assert.rejects(new ConnectionCheckClient(base,async()=>"token",async()=>response(malformed)).check(),code("INVALID_RESPONSE"));
+});
+test("client rejects dependency cycles missing prerequisites and unknown prerequisite values",async()=>{
+ const field=(key:string,requires:Record<string,string>={})=>({key,label:key,options:[{id:key+"-id",label:key,value:"test",requires}]});
+ for(const fields of [[field("client",{client:"test"})],[field("client",{platform:"test"}),field("platform",{client:"test"})],[field("softwareVersion",{client:"test"})],[field("client"),field("softwareVersion",{client:"unknown"})],[field("platform"),field("client")]]){
+  const malformed={...fallback(),form:{...fallback().form,fields}};
+  await assert.rejects(new ConnectionCheckClient(base,async()=>"token",async()=>response(malformed)).check(),code("INVALID_RESPONSE"));
+ }
+});
+test("client accepts ordered dependent choices with reused IDs in different fields",async()=>{
+ const fields=[{key:"client",label:"Client",options:[{id:"same-id",label:"Client A",value:"app-a"}]},{key:"softwareVersion",label:"Version",options:[{id:"same-id",label:"Version 1",value:"1",requires:{client:"app-a"}}]}];
+ const valid={...fallback(),form:{...fallback().form,fields}};
+ const result=await new ConnectionCheckClient(base,async()=>"token",async()=>response(valid)).check();assert.equal(result.status,"customer-input-required");
+ if(result.status!=="customer-input-required")throw new Error("EXPECTED_FORM");assert.deepEqual(result.form.fields,fields);
+});
