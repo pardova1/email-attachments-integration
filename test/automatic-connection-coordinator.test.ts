@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AutomaticConnectionCoordinator, type AutomaticConnectionDiscovery, type ConnectionDiscoveryPort, type ConnectionToolCatalog } from "../src/email/automatic-connection-coordinator.js";
-import { GlobalConnectionReadinessAgent, REQUIRED_CONNECTION_CHECKS, type ConnectionCheck } from "../src/email/global-connection-readiness-agent.js";
+import { GlobalConnectionReadinessAgent, REQUIRED_CONNECTION_CHECKS, type ConnectionCheck, type ConnectionEnvironment } from "../src/email/global-connection-readiness-agent.js";
 import type { ConnectionProbeTool } from "../src/email/global-connection-validation-runner.js";
 const now=new Date("2026-10-10T00:00:00Z");
-function observation(country="KW",version="1.0"): AutomaticConnectionDiscovery {
+function observation(country="KW",version="1.0"): AutomaticConnectionDiscovery & { environment: ConnectionEnvironment } {
  return {environment:{country,network:"observed-network",provider:"observed-provider",client:"observed-client",platform:"android",softwareVersion:version},observedAt:now.toISOString(),sourceReference:"internal-observation:1"};
 }
 function tools(){
