@@ -71,7 +71,7 @@ Dropdown catalog choices may depend on earlier fields (for example, a software v
 
 ### Language selection
 
-The connection-assistance form includes a language selector. Built-in prompt translations cover English, Norwegian Bokmål, Swedish, Persian, Arabic, Spanish, French, German, and Chinese. Persian and Arabic use right-to-left layout. Region tags such as `fa-IR` select the available base language; unavailable translations fall back to English. Country names use locale display names. Changing language preserves routing selections and never marks a connection verified.
+The connection-assistance form includes a language selector. Built-in prompt translations cover 25 languages: English, Norwegian Bokmål, Swedish, Persian, Arabic, Spanish, French, German, Chinese, Portuguese, Italian, Dutch, Danish, Finnish, Polish, Ukrainian, Russian, Turkish, Japanese, Korean, Hindi, Urdu, Indonesian, Vietnamese, and Hebrew. Persian, Arabic, Urdu, and Hebrew use right-to-left layout. Region tags such as `fa-IR` select the available base language; unavailable translations fall back to English. Country names use locale display names. Changing language preserves routing selections and never marks a connection verified.
 
 The renderer accepts an application-managed translation catalog using valid language tags, allowing additional language packs without changing routing code. Only installed translations appear in the selector. This is not yet all-language support across the application: full UI, errors, email templates, and recipient pages still need localization and native-speaker review. Provider/app names and network labels remain catalog names. Email-content translation is not implemented; original customer text is preserved.
 
