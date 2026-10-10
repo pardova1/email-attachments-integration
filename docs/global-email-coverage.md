@@ -128,3 +128,11 @@ The server mounts `POST /v1/connection/check` and `POST /v1/connection/selection
 `createConnectionCheckRouter` accepts an authenticated, customer-bound coordinator factory. It verifies the returned coordinator’s scope against the authenticated customer. It passes the socket peer address and client-reported hints separately; forwarded IP headers are not trusted automatically. Request timeouts and disconnects abort the operation. Replies are not cached, and internal exceptions are masked. Browser origins require explicit operator-configured HTTPS allowlisting; this API does not enable CORS or cookie authentication.
 
 The shipped server has no live coordinator factory yet. Authenticated connection requests therefore return unavailable rather than certifying readiness. Production must supply discovery and probe adapters, configure the browser origin, persist forms, and implement application-side authenticated JSON submission. The standalone HTML form is still a preview, not a cookie-authenticated submission route.
+
+### Application-side connection client
+
+`ConnectionCheckClient` sends authenticated JSON checks and fallback selections to an operator-configured HTTPS `/v1/connection` API. It gets a current access token from the application session for each request, without storing tokens or including customer identity in request bodies. Redirects and cookies are disabled. Response bodies are bounded to 128 KiB, checked against the API contract, and rejected if forms or verified evidence have expired. Invalid readiness flags, missing checks in a verified result, and malformed responses cannot produce a usable verified result.
+
+The client exposes safe error codes for authentication, rejected requests, unavailable checks, and invalid responses. Timeouts and cancellation release pending operations and response streams. A local HTTP integration test exercises the client against the real router through a test-only transport rewrite; the shipped client requires HTTPS.
+
+The application UI still must instantiate this client with its authenticated session, render the returned dropdown fields/language options, and call `submit` after selection. This client does not install the application, discover countries by itself, or implement live provider integrations. It introduces no new dependency; it uses the existing validation library.
