@@ -28,3 +28,13 @@ The goal is the broadest technically and legally available worldwide coverage. I
 Every activated cord must preserve the same application behavior:
 
 **email → oversized attachment → independent lane → fastest secure eligible route → automatic recovery → receiver → ✓ VERIFIED EXACT**.
+
+## Worldwide connection requirement
+
+The product goal is for senders and recipients in **all countries** to connect and exchange email-linked large videos and pictures. Norway, Sweden, Iran, and Kuwait are explicitly included in that goal. The recipient must be able to download without installing the application. A country must never be silently excluded from discovery or readiness tracking.
+
+The Global Connection Readiness Agent tracks exact country, network, email provider, client, platform, and software-version environments. It requires referenced tests for DNS/TLS reachability, email delivery, attachment integration, upload, recipient download, and exact file integrity. Missing, failed, restricted, or expired evidence produces a visible readiness gap. A software-version or network change requires new evidence; a generic worldwide email protocol entry does not prove a specific country's connectivity.
+
+Production tools must supply country/provider/software discovery, current compatibility documentation, network probes from the relevant locations, sender-to-recipient delivery tests, and large-file transfer/integrity tests. Evidence may remain current for at most 24 hours and must be refreshed continuously. Restricted paths remain research items and require an authorized viable integration before activation.
+
+The current agent evaluates supplied test evidence in memory. It does not independently run worldwide probes, send email, or provide a continuously deployed research service. Production requires durable evidence storage, scheduled discovery/probes, configured providers, monitoring, and actual testing across countries and software environments. The sample tests use synthetic environments and do not certify real country access.
