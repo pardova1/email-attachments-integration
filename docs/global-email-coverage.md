@@ -150,3 +150,9 @@ The component is ready for embedding, but there is no published application shel
 The embedded form now shows the generic technical-difficulties notice in the selected language for unavailable and not-ready results. Regional preferences normalize through the same language selector, including Persian for Iran and Arabic for Kuwait. Changing language updates the notice without changing the environment, routing, or readiness evidence. English retains the established public notice verbatim; internal exception details remain hidden.
 
 All 38 installed connection languages have a notice. These translations still require native-speaker review. This change covers the connection form; other application screens, emails, and incident-resolution notices still need localization. Live worldwide connectivity and a downloadable application remain unverified.
+
+### Expiring application-side readiness
+
+The form model withdraws a verified assessment when its evidence deadline is reached or the local clock/deadline is invalid. Snapshots then report unverified status, all seven required checks, and a fresh-check requirement. The original server response is retained without mutation. Withdrawal remains in effect even if the local clock moves backward; a new successful check can restore readiness.
+
+The embedded view schedules a refresh at the evidence deadline and delivers the changed assessment to the host callback. Language changes do not repeat an unchanged callback. Host applications must handle readiness withdrawal and retain server-side authorization checks before sending; browser timers alone cannot enforce transfer authorization, particularly when a device sleeps.
