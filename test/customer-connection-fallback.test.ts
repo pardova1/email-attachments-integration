@@ -220,3 +220,18 @@ test("wrong-customer expiry attempts leave the owner's expiration handling intac
  assert.throws(()=>fallback.resolve("sender-b",form.id,{country:"norway"}),/CONNECTION_FORM_UNAVAILABLE/);
  assert.throws(()=>fallback.resolve("sender-a",form.id,{country:"norway"}),/CONNECTION_FORM_EXPIRED/);
 });
+
+
+test("difficulty notices cover every selectable language and normalize regional preferences",async()=>{
+ const {CONNECTION_TRANSLATIONS,CONNECTION_DIFFICULTY_NOTICES,connectionDifficultyNotice}=await import("../src/email/connection-languages.js");
+ const {PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE}=await import("../src/incidents/public-incident-notification.js");
+ assert.deepEqual(Object.keys(CONNECTION_DIFFICULTY_NOTICES).sort(),Object.keys(CONNECTION_TRANSLATIONS).sort());
+ for(const tag of Object.keys(CONNECTION_TRANSLATIONS)){
+  assert.ok(connectionDifficultyNotice(tag).trim(),tag);
+  if(tag!=="en")assert.notEqual(connectionDifficultyNotice(tag),PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE,tag);
+ }
+ for(const [region,tag] of [["FA-ir","fa"],["ar-KW","ar"],["sw-KE","sw"],["nb-NO","nb"],["sv-SE","sv"]])assert.equal(connectionDifficultyNotice(region),CONNECTION_DIFFICULTY_NOTICES[tag]);
+ assert.equal(connectionDifficultyNotice("unsupported"),PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE);
+ assert.equal(connectionDifficultyNotice("en"),PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE);
+ assert.ok(Object.isFrozen(CONNECTION_DIFFICULTY_NOTICES));
+});

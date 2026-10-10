@@ -1,3 +1,5 @@
+import {PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE} from "../incidents/public-incident-notification.js";
+
 export interface ConnectionTranslation {
   language: string;
   direction: "ltr" | "rtl";
@@ -65,4 +67,50 @@ export function selectConnectionLanguage(requested:string,catalog:Record<string,
   }
   const normalized=requested.toLowerCase();
   return tags.find(tag=>tag.toLowerCase()===normalized)??tags.find(tag=>tag.toLowerCase()===normalized.split("-")[0])??tags.find(tag=>tag==="en")??tags[0];
+}
+
+// Keep customer notices generic: no internal errors, provider assumptions, or
+// promise that a connection has been verified. Language never selects a route.
+export const CONNECTION_DIFFICULTY_NOTICES: Readonly<Record<string,string>> = Object.freeze({
+ en:PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE,
+ nb:"Tekniske problemer. Prøv igjen senere.",
+ sv:"Tekniska problem. Försök igen senare.",
+ fa:"مشکلات فنی. لطفاً بعداً دوباره تلاش کنید.",
+ ar:"صعوبات تقنية. يرجى المحاولة مرة أخرى لاحقًا.",
+ es:"Dificultades técnicas. Inténtalo de nuevo más tarde.",
+ fr:"Difficultés techniques. Veuillez réessayer plus tard.",
+ de:"Technische Schwierigkeiten. Bitte versuchen Sie es später erneut.",
+ zh:"遇到技术问题。请稍后重试。",
+ pt:"Dificuldades técnicas. Tente novamente mais tarde.",
+ it:"Problemi tecnici. Riprova più tardi.",
+ nl:"Technische problemen. Probeer het later opnieuw.",
+ da:"Tekniske problemer. Prøv igen senere.",
+ fi:"Teknisiä ongelmia. Yritä myöhemmin uudelleen.",
+ pl:"Problemy techniczne. Spróbuj ponownie później.",
+ uk:"Технічні труднощі. Спробуйте ще раз пізніше.",
+ ru:"Технические неполадки. Повторите попытку позже.",
+ tr:"Teknik sorunlar. Lütfen daha sonra tekrar deneyin.",
+ ja:"技術的な問題が発生しています。後でもう一度お試しください。",
+ ko:"기술적인 문제가 발생했습니다. 나중에 다시 시도해 주세요.",
+ hi:"तकनीकी समस्या है। कृपया बाद में फिर कोशिश करें।",
+ ur:"تکنیکی مشکلات۔ براہ کرم بعد میں دوبارہ کوشش کریں۔",
+ id:"Kendala teknis. Silakan coba lagi nanti.",
+ vi:"Có sự cố kỹ thuật. Vui lòng thử lại sau.",
+ he:"קשיים טכניים. נסו שוב מאוחר יותר.",
+ ku:"Pirsgirêkên teknîkî. Ji kerema xwe paşê dîsa biceribînin.",
+ ckb:"کێشەی تەکنیکی. تکایە دواتر دووبارە هەوڵ بدەنەوە.",
+ ps:"تخنیکي ستونزې. مهرباني وکړئ وروسته بیا هڅه وکړئ.",
+ sw:"Matatizo ya kiufundi. Tafadhali jaribu tena baadaye.",
+ am:"ቴክኒካዊ ችግሮች አሉ። እባክዎ በኋላ እንደገና ይሞክሩ።",
+ ha:"Matsalolin fasaha. Da fatan za a sake gwadawa daga baya.",
+ yo:"Ìṣòro ìmọ̀ ẹ̀rọ. Jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan sí i nígbà mìíràn.",
+ ig:"Nsogbu teknụzụ. Biko nwaa ọzọ ma e mesịa.",
+ zu:"Izinkinga zobuchwepheshe. Sicela uzame futhi ngokuhamba kwesikhathi.",
+ xh:"Iingxaki zobugcisa. Nceda uzame kwakhona kamva.",
+ so:"Cillado farsamo. Fadlan isku day mar kale goor dambe.",
+ rw:"Ibibazo bya tekiniki. Gerageza kongera nyuma.",
+ sn:"Matambudziko ehunyanzvi. Ndapota edzazve gare gare."
+});
+export function connectionDifficultyNotice(requested:string):string {
+ return CONNECTION_DIFFICULTY_NOTICES[selectConnectionLanguage(requested)]??PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE;
 }
