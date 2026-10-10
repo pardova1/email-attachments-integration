@@ -102,3 +102,9 @@ Language/locale never determines country. Client software reports are routing hi
 ### Compatibility evidence deadlines
 
 Probe results may supply `validUntil`. The validation runner uses the earliest supplied deadline or its default evidence lifetime, whichever is sooner. Exact-software probes always cap that deadline at their profile expiration. A saved verified result therefore cannot outlive the profile that selected its tests. A malformed deadline makes that check fail; evidence that expires while later tests run is unverified when validation finishes. Adapters cannot extend the runner’s default validity by returning a later deadline.
+
+### HTTPS download integrity probe
+
+`HttpsDownloadIntegrityProbe` retrieves an operator-owned synthetic fixture over HTTPS and compares its exact byte count and SHA-256 digest. The configured fixture is limited to 1 MiB. The probe rejects redirects, credentials or query strings in its configured URL, mismatched environments, truncated/oversized/corrupt responses, and blocked responses. Streams are cancelled on oversize or caller cancellation. Receipts contain metadata rather than file contents or private network exception details.
+
+A fixture probe tests byte transport from the configured vantage. It does not certify an actual recipient browser, prove a full-size transfer, or establish that a recipient needs no installation; it deliberately omits installation evidence. Those checks still require independent recipient workflow tests. The native HTTPS regression uses a local synthetic fixture and certificate trust scoped to its test subprocess, without changing system TLS policy.
