@@ -36,3 +36,28 @@ test("disposing the form cancels work and prevents late updates",async()=>{
  let finish!:(value:ConnectionClientResult)=>void,signal:AbortSignal|undefined,notifications=0;
  const model=new ConnectionFormModel({async check(_input,received){signal=received;return new Promise(resolve=>{finish=resolve;});},async submit(){return assessed();}});model.subscribe(()=>{notifications++;});const pending=model.check(),before=notifications;model.dispose();assert.equal(signal?.aborted,true);finish(form());await pending;assert.equal(notifications,before);assert.throws(()=>model.setLanguage("ar"),/CONNECTION_FORM_DISPOSED/);
 });
+
+
+test("verified readiness is withdrawn at its exact evidence deadline without another server request",async()=>{
+ let now=new Date("2026-10-10T12:00:00Z"),checks=0;
+ const result=assessed();if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");
+ result.retryRequired=false;result.validation.missingTools=[];
+ Object.assign(result.validation.assessment,{status:"verified",requiredChecks:[],reasons:[],checkedAt:now.toISOString(),expiresAt:"2026-10-10T12:01:00Z"});
+ const model=new ConnectionFormModel({async check(){checks++;return result;},async submit(){return result;}},"en",()=>now);
+ const updates:ConnectionClientResult[]=[];model.subscribe(state=>{if(state.result)updates.push(state.result);});await model.check();
+ assert.equal(model.state().result?.retryRequired,false);
+ now=new Date("2026-10-10T12:00:59.999Z");assert.equal(model.state().result?.retryRequired,false);
+ now=new Date("2026-10-10T12:01:00Z");model.refresh();
+ const expired=updates.at(-1)!;assert.equal(expired.retryRequired,true);
+ if(expired.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");
+ assert.equal(expired.validation.assessment.status,"unverified");assert.deepEqual(expired.validation.assessment.reasons,["EVIDENCE_EXPIRED"]);
+ assert.equal(expired.validation.assessment.requiredChecks.length,7);assert.equal(checks,1);assert.equal(result.retryRequired,false);
+ now=new Date("2026-10-10T12:00:30Z");model.setLanguage("ar");assert.equal(model.state().result?.retryRequired,true);
+ result.validation.assessment.expiresAt="2026-10-10T12:02:00Z";await model.check();assert.equal(model.state().result?.retryRequired,false);assert.equal(checks,2);
+});
+
+test("an invalid form clock cannot preserve a verified assessment",async()=>{
+ const result=assessed();if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");
+ result.retryRequired=false;Object.assign(result.validation.assessment,{status:"verified",expiresAt:"2099-01-01T00:00:00Z"});
+ const model=new ConnectionFormModel({async check(){return result;},async submit(){return result;}},"en",()=>new Date(NaN));await model.check();assert.equal(model.state().result?.retryRequired,true);
+});

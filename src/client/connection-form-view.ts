@@ -6,12 +6,12 @@ import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice} from "../email/conne
 // client owns authorization and submits JSON rather than exposing tokens in forms.
 export function mountConnectionAssistance(container:HTMLElement,client:ConnectionCheckClient,options:{language?:string;software?:ConnectionCheckInput["software"];onAssessed?:(result:Extract<ConnectionClientResult,{status:"assessed"}>)=>void}={}) {
  const document=container.ownerDocument,model=new ConnectionFormModel(client,options.language);
- let expiryTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,assessmentDelivered=false;
+ let expiryTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,assessmentDelivered:string|undefined=undefined;
  const unsubscribe=model.subscribe(state=>{
   const active=document.activeElement;
   const focusName=active&&container.contains(active)?active.getAttribute("name"):undefined;
   if(expiryTimer)clearTimeout(expiryTimer);
-  if(state.phase!=="assessed")assessmentDelivered=false;
+  if(state.phase!=="assessed")assessmentDelivered=undefined;
   const text=CONNECTION_TRANSLATIONS[state.language];container.replaceChildren();container.lang=state.language;container.dir=text.direction;container.setAttribute("aria-busy",String(state.phase==="checking"||state.phase==="submitting"));
   const make=<K extends keyof HTMLElementTagNameMap>(tag:K,content?:string)=>{const node=document.createElement(tag);if(content!==undefined)node.textContent=content;return node;};
   const languageLabel=make("label",text.languageLabel),language=make("select");language.name="connection-language";languageLabel.append(language);language.setAttribute("aria-label",text.languageLabel);
@@ -31,7 +31,11 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
   }else{
    if(state.phase==="unavailable"||state.phase==="assessed"&&result?.retryRequired){const notice=make("p",connectionDifficultyNotice(state.language));notice.setAttribute("role","alert");container.append(notice);}
    const check=make("button",text.submit);check.type="button";check.disabled=state.phase==="checking"||state.phase==="submitting";check.addEventListener("click",()=>void model.check(options.software));container.append(check);
-   if(state.phase==="assessed"&&result?.status==="assessed"&&!assessmentDelivered){assessmentDelivered=true;options.onAssessed?.(result);}
+   if(state.phase==="assessed"&&result?.status==="assessed"){
+    const signature=JSON.stringify(result);
+    if(assessmentDelivered!==signature){assessmentDelivered=signature;options.onAssessed?.(result);}
+    if(!disposed&&result.validation.assessment.status==="verified")expiryTimer=setTimeout(()=>{if(!disposed)model.refresh();},Math.max(1,Math.min(Date.parse(result.validation.assessment.expiresAt!)-Date.now(),2_147_483_647)));
+   }
   }
   if(focusName&&/^[a-zA-Z-]+$/.test(focusName))container.querySelector<HTMLElement>(`[name="${focusName}"]`)?.focus();
  });
