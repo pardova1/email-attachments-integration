@@ -1,5 +1,5 @@
 export const REQUIRED_CONNECTION_CHECKS = [
-  "dns-tls", "email-delivery", "attachment-integration", "upload", "recipient-download", "file-integrity"
+  "application-installation", "dns-tls", "email-delivery", "attachment-integration", "upload", "recipient-download", "file-integrity"
 ] as const;
 export type ConnectionCheck = typeof REQUIRED_CONNECTION_CHECKS[number];
 

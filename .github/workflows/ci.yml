@@ -61,5 +61,6 @@ jobs:
           test/https-connection-probe.test.ts
           test/automatic-connection-coordinator.test.ts
           test/customer-connection-fallback.test.ts
+          test/exact-software-connection-catalog.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
