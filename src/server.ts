@@ -1,3 +1,4 @@
+import { HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE } from "./http/health-contract.js";
 import express from "express";
 import { z } from "zod";
 import { MemoryStorage } from "./adapters/memory-storage.js";
@@ -100,7 +101,7 @@ const senderAuthenticator = new SupabaseSenderAuthenticator(
 );
 
 app.use(express.json({ limit: "1mb" }));
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) => res.setHeader(HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE).json({ ok: true }));
 
 const createSchema = z.object({
   fileName: z.string().min(1).max(1024),

@@ -20,6 +20,8 @@ test("live HTTP sender routes reject absent wrong-transfer and recipient credent
   child.once("error",error=>{clearTimeout(timeout);reject(error);});
   child.once("exit",()=>{clearTimeout(timeout);reject(new Error("SERVER_START_FAILED"));});
  });
+ const health=await fetch(`http://127.0.0.1:${port}/health`,{method:"HEAD"});
+ assert.equal(health.status,200);assert.equal(health.headers.get("X-Email-Bridge-Health"),"1");
  const sender=new SenderTransferAccessService("http-test-secret");
  const recipient=new RecipientAccessService("http-test-secret");
  const deadline=new Date(Date.now()+60_000);
