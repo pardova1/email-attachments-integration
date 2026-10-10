@@ -103,3 +103,19 @@ test("evidence that expires during later checks stays unverified at completion",
  const result=await new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),configured,10_000,15*60*1000,()=>current).run(environment);
  assert.equal(result.assessment.status,"unverified");assert.ok(result.assessment.reasons.includes("EVIDENCE_EXPIRED"));
 });
+test("withdrawn tools do not run and guarded success preserves its adapter receiver",async()=>{
+ const configured=tools();let active=true,calls=0;
+ configured.upload={id:"guarded-upload",isCurrent(){assert.equal(this.id,"guarded-upload");return active;},async run(){calls++;return {outcome:"passed",testReference:"guarded"};}};
+ const agent=new GlobalConnectionReadinessAgent(),runner=new GlobalConnectionValidationRunner(agent,configured);
+ await runner.run(environment);assert.equal(calls,1);assert.equal(agent.assess(environment).status,"verified");
+ active=false;assert.equal(agent.assess(environment).status,"unverified");
+ const result=await runner.run(environment);assert.equal(calls,1);assert.equal(result.assessment.status,"not-ready");assert.ok(result.assessment.requiredChecks.includes("upload"));
+});
+test("a source withdrawn during later checks cannot publish verified readiness",async()=>{
+ const configured=tools();let active=true;
+ configured.upload.isCurrent=()=>active;
+ configured["file-integrity"].run=async()=>{active=false;return {outcome:"passed",testReference:"last-check"};};
+ const agent=new GlobalConnectionReadinessAgent(),result=await new GlobalConnectionValidationRunner(agent,configured).run(environment);
+ assert.equal(result.assessment.status,"unverified");assert.ok(result.assessment.reasons.includes("EVIDENCE_SOURCE_INVALIDATED"));
+ active=true;assert.equal(agent.assess(environment).status,"unverified");
+});

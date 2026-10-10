@@ -9,6 +9,8 @@ export interface ConnectionProbeResult {
 }
 export interface ConnectionProbeTool {
   id: string;
+  // Optional synchronous guard for withdrawn/replaced tool configuration.
+  isCurrent?:()=>boolean;
   run(environment: ConnectionEnvironment, signal: AbortSignal): Promise<ConnectionProbeResult>;
 }
 
@@ -26,9 +28,9 @@ export class GlobalConnectionValidationRunner {
     for (const check of REQUIRED_CONNECTION_CHECKS) {
       const tool = tools[check];
       if (!tool) continue;
-      if (!tool.id.trim() || typeof tool.run !== "function") throw new Error("INVALID_CONNECTION_PROBE_TOOL");
+      if (!tool.id.trim() || typeof tool.run !== "function" || tool.isCurrent!==undefined&&typeof tool.isCurrent!=="function") throw new Error("INVALID_CONNECTION_PROBE_TOOL");
       // Snapshot registration without losing the adapter's method receiver.
-      this.tools[check] = { id: tool.id, run: tool.run.bind(tool) };
+      this.tools[check] = { id: tool.id, run: tool.run.bind(tool),isCurrent:tool.isCurrent?.bind(tool) };
     }
   }
 
@@ -38,6 +40,7 @@ export class GlobalConnectionValidationRunner {
     const normalized = this.agent.assess(environment, started).environment;
     const checks: ConnectionEvidence["checks"] = [];
     const missingTools: ConnectionCheck[] = [];
+    const sourceGuards:(()=>boolean)[]=[];
     let evidenceExpiresAt=started.getTime()+this.evidenceLifetimeMs;
     let recipientNeedsInstallation: ConnectionEvidence["recipientNeedsInstallation"] = "unknown";
     for (const check of REQUIRED_CONNECTION_CHECKS) {
@@ -45,13 +48,16 @@ export class GlobalConnectionValidationRunner {
       const tool = this.tools[check];
       if (!tool) { missingTools.push(check); continue; }
       try {
+        if(tool.isCurrent&&tool.isCurrent()!==true)throw new Error("PROBE_SOURCE_INVALIDATED");
         const result = await this.probe(tool, normalized, signal);
+        if(tool.isCurrent&&tool.isCurrent()!==true)throw new Error("PROBE_SOURCE_INVALIDATED");
         if (!result || !["passed", "failed", "restricted"].includes(result.outcome) || typeof result.testReference !== "string" || !result.testReference.trim()) throw new Error("INVALID_PROBE_RESULT");
         if(result.validUntil!==undefined){
           const deadline=typeof result.validUntil==="string"?Date.parse(result.validUntil):NaN;
           if(!Number.isFinite(deadline)||deadline<=started.getTime())throw new Error("INVALID_PROBE_EVIDENCE_DEADLINE");
           evidenceExpiresAt=Math.min(evidenceExpiresAt,deadline);
         }
+        if(result.outcome==="passed"&&tool.isCurrent)sourceGuards.push(tool.isCurrent);
         checks.push({ check, outcome: result.outcome, testReference: `${tool.id}:${result.testReference}` });
         if (check === "recipient-download" && typeof result.recipientNeedsInstallation === "boolean") recipientNeedsInstallation = result.recipientNeedsInstallation;
       } catch {
@@ -61,7 +67,7 @@ export class GlobalConnectionValidationRunner {
     }
     signal?.throwIfAborted();
     const reviewed = this.clock();
-    this.agent.record({ environment: normalized, checkedAt: started.toISOString(), expiresAt: new Date(evidenceExpiresAt).toISOString(), recipientNeedsInstallation, checks }, reviewed);
+    this.agent.record({ environment: normalized, checkedAt: started.toISOString(), expiresAt: new Date(evidenceExpiresAt).toISOString(), recipientNeedsInstallation, checks }, reviewed,sourceGuards.length?()=>sourceGuards.every(guard=>guard()===true):undefined);
     return { assessment: this.agent.assess(normalized, reviewed), missingTools };
   }
 

@@ -102,3 +102,28 @@ test("profile cannot extend a probe's shorter evidence deadline",async()=>{
  const catalog=new ExactSoftwareConnectionCatalog([input],()=>now),tools=await catalog.toolsFor(environment,new AbortController().signal);
  assert.equal((await tools.upload!.run(environment,new AbortController().signal)).validUntil,deadline);
 });
+test("replacing a profile invalidates saved readiness immediately until new checks pass",async()=>{
+ const catalog=new ExactSoftwareConnectionCatalog([profile()],()=>now),agent=new GlobalConnectionReadinessAgent();
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:now.toISOString(),sourceReference:"synthetic"};}},catalog,agent,()=>now);
+ await coordinator.check();assert.equal(agent.assess(environment,now).status,"verified");
+ catalog.register(profile());const invalidated=agent.assess(environment,now);
+ assert.equal(invalidated.status,"unverified");assert.ok(invalidated.reasons.includes("EVIDENCE_SOURCE_INVALIDATED"));
+ await coordinator.check();assert.equal(agent.assess(environment,now).status,"verified");
+});
+test("withdrawn profile cannot leave a previously verified environment ready",async()=>{
+ const catalog=new ExactSoftwareConnectionCatalog([profile()],()=>now),agent=new GlobalConnectionReadinessAgent();
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:now.toISOString(),sourceReference:"synthetic"};}},catalog,agent,()=>now);
+ await coordinator.check();assert.equal(catalog.withdraw(environment),true);assert.equal(catalog.withdraw(environment),false);
+ assert.equal(agent.assess(environment,now).status,"unverified");assert.equal(catalog.lookup(environment).status,"unknown");
+ const result=await coordinator.check();if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");
+ assert.equal(result.validation.assessment.status,"not-ready");
+});
+test("adapter validity is retained through software profile wrappers",async()=>{
+ let active=true;const input=profile();input.tools.upload!.isCurrent=()=>active;
+ const catalog=new ExactSoftwareConnectionCatalog([input],()=>now),agent=new GlobalConnectionReadinessAgent();
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:now.toISOString(),sourceReference:"synthetic"};}},catalog,agent,()=>now);
+ await coordinator.check();assert.equal(agent.assess(environment,now).status,"verified");
+ active=false;assert.equal(agent.assess(environment,now).status,"unverified");
+ active=true;assert.equal(agent.assess(environment,now).status,"unverified");
+ await coordinator.check();assert.equal(agent.assess(environment,now).status,"verified");
+});
