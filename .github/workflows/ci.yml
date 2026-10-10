@@ -57,5 +57,6 @@ jobs:
           test/recipient-download-http.test.ts
           test/transfer-cache-refresh.test.ts
           test/global-connection-readiness-agent.test.ts
+          test/global-connection-validation-runner.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
