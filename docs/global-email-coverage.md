@@ -66,3 +66,13 @@ The latest interaction rule is **automatic detection first, customer dropdowns o
 Forms expire after 15 minutes, preserve their server-side option snapshot, and reject invented choices or attempts to overwrite already-detected fields. Selection is a routing hint, not proof of location or compatibility. Every selected environment goes through the same probe validation before connection readiness is granted. The renderer supplies labeled, required dropdowns and a Check connection button. The standalone HTML preview shows an example form, not live country certification.
 
 Production still needs the real choice catalog, sender-scoped form persistence, authenticated/CSRF-protected form routes, frontend integration, and automatic discovery/probe deployment. The fallback implementation and preview are not yet wired into a downloadable production application.
+
+Dropdown catalog choices may depend on earlier fields (for example, a software version on the selected app and platform). Detected details filter the available choices; changing a dropdown clears incompatible later selections. The server independently rejects incompatible combinations, including submissions made without JavaScript. If no catalog options fit the detected details, the coordinator keeps the issue in its internal retry path. These catalog rules do not replace live connection checks.
+
+### Language selection
+
+The connection-assistance form includes a language selector. Built-in prompt translations cover English, Norwegian Bokmål, Swedish, Persian, Arabic, Spanish, French, German, and Chinese. Persian and Arabic use right-to-left layout. Region tags such as `fa-IR` select the available base language; unavailable translations fall back to English. Country names use locale display names. Changing language preserves routing selections and never marks a connection verified.
+
+The renderer accepts an application-managed translation catalog using valid language tags, allowing additional language packs without changing routing code. Only installed translations appear in the selector. This is not yet all-language support across the application: full UI, errors, email templates, and recipient pages still need localization and native-speaker review. Provider/app names and network labels remain catalog names. Email-content translation is not implemented; original customer text is preserved.
+
+When wiring the form route, treat the posted `language` as a display preference, separate from the six connection selections passed to `submitFallback`. The route must retain authentication, sender binding, and CSRF protections described above.
