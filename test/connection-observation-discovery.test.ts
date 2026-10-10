@@ -21,11 +21,11 @@ test("independent automatic observations produce normalized details with per-fie
 test("failed network discovery preserves software and asks only for missing network details",async()=>{
  const configured=sources();configured.network=async()=>{throw new Error("LOOKUP_UNAVAILABLE");};
  const fallback=new CustomerConnectionFallback({country:[{id:"kw",label:"Kuwait",value:"KW"}],network:[{id:"net",label:"Test network",value:"test-network"}]},()=>now);
- const coordinator=new AutomaticConnectionCoordinator(new ConnectionObservationDiscovery(configured,()=>now),{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback);
+ const coordinator=new AutomaticConnectionCoordinator(new ConnectionObservationDiscovery(configured,()=>now),{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1");
  const result=await coordinator.check();assert.equal(result.status,"customer-input-required");
  if(result.status!=="customer-input-required")throw new Error("EXPECTED_FORM");
  assert.deepEqual(result.form.fields.map(field=>field.key),["country","network"]);
- assert.equal(fallback.resolve(result.form.id,{country:"kw",network:"net"}).softwareVersion,"1.2.3");
+ assert.equal(fallback.resolve("sender-1",result.form.id,{country:"kw",network:"net"}).softwareVersion,"1.2.3");
 });
 test("slow sources run concurrently and timeout without discarding successful observations",async()=>{
  const configured=sources();let networkSignal:AbortSignal|undefined,softwareStarted=false;

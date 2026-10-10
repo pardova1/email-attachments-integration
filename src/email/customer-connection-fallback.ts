@@ -17,7 +17,7 @@ const labels: Record<ConnectionField,string> = { country:"Country",network:"Inte
 // customer values. Selections are routing hints and still require connection tests.
 export class CustomerConnectionFallback {
   private readonly choices: Partial<Record<ConnectionField,ConnectionChoice[]>>;
-  private readonly forms = new Map<string,{form:ConnectionFallbackForm;known:Partial<ConnectionEnvironment>}>();
+  private readonly forms = new Map<string,{form:ConnectionFallbackForm;known:Partial<ConnectionEnvironment>;customerScope:string}>();
   constructor(choices:Partial<Record<ConnectionField,ConnectionChoice[]>>,private readonly clock=()=>new Date()) {
     for(const key of CONNECTION_FIELDS){
       const ids=new Set<string>();
@@ -33,7 +33,8 @@ export class CustomerConnectionFallback {
     this.choices=structuredClone(choices);
   }
 
-  prepare(known:Partial<ConnectionEnvironment>,missing:ConnectionField[]):ConnectionFallbackForm|undefined {
+  prepare(customerScope:string,known:Partial<ConnectionEnvironment>,missing:ConnectionField[]):ConnectionFallbackForm|undefined {
+    requireConnectionCustomerScope(customerScope);
     const keys=CONNECTION_FIELDS.filter(key=>missing.includes(key));
     if(missing.some(key=>!CONNECTION_FIELDS.includes(key)))return undefined;
     if(!keys.length||keys.some(key=>!CONNECTION_FIELDS.includes(key)||!this.choices[key]?.length))return undefined;
@@ -53,15 +54,17 @@ export class CustomerConnectionFallback {
     // Do not evict a live customer's form to make room for another request.
     if(this.forms.size>=1000)throw new Error("CONNECTION_FORM_CAPACITY_REACHED");
     const form={id:randomUUID(),message:"We couldn't identify some connection details automatically. Please choose the missing details below so we can check your connection.",expiresAt:new Date(now.getTime()+15*60*1000).toISOString(),fields:keys.map(key=>({key,label:labels[key],options:structuredClone(options.get(key)!)}))};
-    this.forms.set(form.id,{form:structuredClone(form),known:structuredClone(known)});
+    this.forms.set(form.id,{form:structuredClone(form),known:structuredClone(known),customerScope});
     return form;
   }
 
-  resolve(id:string,selections:Partial<Record<ConnectionField,string>>):ConnectionEnvironment {
+  resolve(customerScope:string,id:string,selections:Partial<Record<ConnectionField,string>>):ConnectionEnvironment {
+    requireConnectionCustomerScope(customerScope);
     const pending=this.forms.get(id);
+    if(!pending||pending.customerScope!==customerScope)throw new Error("CONNECTION_FORM_UNAVAILABLE");
     const now=this.clock().getTime();
     if(!Number.isFinite(now))throw new Error("INVALID_CONNECTION_FORM_TIME");
-    if(!pending||Date.parse(pending.form.expiresAt)<=now){
+    if(Date.parse(pending.form.expiresAt)<=now){
       this.forms.delete(id);throw new Error("CONNECTION_FORM_EXPIRED");
     }
     const required=pending.form.fields;
@@ -79,6 +82,11 @@ export class CustomerConnectionFallback {
     }
     return environment as ConnectionEnvironment;
   }
+}
+
+// Scope comes from authenticated server context, never a submitted form field.
+export function requireConnectionCustomerScope(value:unknown):asserts value is string {
+  if(typeof value!=="string"||!value.trim()||value!==value.trim()||value.length>256||/[\x00-\x1f\x7f]/.test(value))throw new Error("CONNECTION_CUSTOMER_SCOPE_REQUIRED");
 }
 
 const escape=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]!));
