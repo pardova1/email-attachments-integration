@@ -149,3 +149,30 @@ test("changing language preserves selections and changing app clears incompatibl
  client.value="browser-b";listeners.change();
  assert.equal(version.value,"");assert.equal(version.options[1].disabled,true);assert.equal(version.options[2].disabled,false);
 });
+
+test("every built-in language renders complete translated connection fields",async()=>{
+ const {CONNECTION_TRANSLATIONS,selectConnectionLanguage}=await import("../src/email/connection-languages.js");
+ const keys=["country","network","provider","client","platform","softwareVersion"] as const;
+ const catalog={...choices,...Object.fromEntries(Object.entries(known).map(([key,value])=>[key,[{id:value,label:value,value}]]))};
+ const form=new CustomerConnectionFallback(catalog,()=>now).prepare({},[...keys])!;
+ for(const [tag,translation] of Object.entries(CONNECTION_TRANSLATIONS)){
+  const html=renderConnectionFallback(form,"/connection-assistance",tag);
+  assert.equal(selectConnectionLanguage(tag),tag);
+  assert.ok(html.includes(`lang="${tag}" dir="${translation.direction}"`),tag);
+  for(const field of keys){
+   assert.ok(translation.fields[field].trim(),`${tag}: ${field}`);
+   assert.ok(html.includes(`<label for="${field}">${translation.fields[field]}</label>`),`${tag}: ${field}`);
+  }
+  assert.ok(html.includes(`<button type="submit">${translation.submit}</button>`),tag);
+  assert.ok(html.includes(`name="language" value="${tag}"`),tag);
+ }
+ assert.equal(Object.keys(CONNECTION_TRANSLATIONS).length,25);
+});
+test("new regional preferences select translated base languages with correct text direction",async()=>{
+ const {selectConnectionLanguage}=await import("../src/email/connection-languages.js");
+ const form=new CustomerConnectionFallback(choices,()=>now).prepare(known,["country"])!;
+ for(const [region,tag,direction] of [["pt-BR","pt","ltr"],["hi-IN","hi","ltr"],["ja-JP","ja","ltr"],["ur-PK","ur","rtl"],["he-IL","he","rtl"]]){
+  assert.equal(selectConnectionLanguage(region),tag);
+  assert.ok(renderConnectionFallback(form,"/connection-assistance",region).includes(`lang="${tag}" dir="${direction}"`));
+ }
+});
