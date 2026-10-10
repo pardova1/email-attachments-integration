@@ -25,6 +25,8 @@ const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
 // Evaluates supplied test evidence. Discovery and live probes must be supplied by
 // production tools; a country name or generic protocol capability proves no access.
 export class GlobalConnectionReadinessAgent {
+  private readonly sourceValidity = new Map<string,()=>boolean>();
+  private readonly invalidated = new Set<string>();
   private readonly evidence = new Map<string, ConnectionEvidence>();
 
   private normalize(environment: ConnectionEnvironment): ConnectionEnvironment {
@@ -40,7 +42,8 @@ export class GlobalConnectionReadinessAgent {
     return JSON.stringify([value.country, value.network, value.provider, value.client, value.platform, value.softwareVersion]);
   }
 
-  record(input: ConnectionEvidence, now = new Date()) {
+  record(input: ConnectionEvidence, now = new Date(), sourceIsCurrent?:()=>boolean) {
+    if(sourceIsCurrent!==undefined&&typeof sourceIsCurrent!=="function")throw new Error("INVALID_EVIDENCE_SOURCE_GUARD");
     const checked = Date.parse(input.checkedAt), expires = Date.parse(input.expiresAt);
     if (!Number.isFinite(now.getTime()) || !Number.isFinite(checked) || !Number.isFinite(expires) || checked > now.getTime() || expires <= checked || expires - checked > MAX_EVIDENCE_AGE_MS) {
       throw new Error("INVALID_CONNECTION_EVIDENCE_WINDOW");
@@ -58,16 +61,26 @@ export class GlobalConnectionReadinessAgent {
     const previous = this.evidence.get(key);
     if (previous && Date.parse(previous.checkedAt) > checked) throw new Error("STALE_CONNECTION_EVIDENCE");
     this.evidence.set(key, structuredClone({ ...input, environment }));
+    this.invalidated.delete(key);
+    if(sourceIsCurrent)this.sourceValidity.set(key,sourceIsCurrent);
+    else this.sourceValidity.delete(key);
   }
 
   assess(environment: ConnectionEnvironment, now = new Date()) {
     if (!Number.isFinite(now.getTime())) throw new Error("INVALID_CONNECTION_REVIEW_TIME");
     const normalized = this.normalize(environment);
-    const evidence = this.evidence.get(this.key(normalized));
+    const key=this.key(normalized);
+    const evidence = this.evidence.get(key);
     const current = evidence && Date.parse(evidence.checkedAt) <= now.getTime() && Date.parse(evidence.expiresAt) > now.getTime();
     if (!current) {
       return { environment: normalized, status: "unverified" as const, requiredChecks: [...REQUIRED_CONNECTION_CHECKS], reasons: [evidence ? "EVIDENCE_EXPIRED" : "NO_ENVIRONMENT_TEST_EVIDENCE"] };
     }
+    const sourceIsCurrent=this.sourceValidity.get(key);
+    if(sourceIsCurrent&&!this.invalidated.has(key)){
+      try{if(sourceIsCurrent()!==true)this.invalidated.add(key);}
+      catch{this.invalidated.add(key);}
+    }
+    if(this.invalidated.has(key))return {environment:normalized,status:"unverified" as const,requiredChecks:[...REQUIRED_CONNECTION_CHECKS],reasons:["EVIDENCE_SOURCE_INVALIDATED"]};
     const requiredChecks = REQUIRED_CONNECTION_CHECKS.filter(check => !evidence.checks.some(result => result.check === check && result.outcome === "passed"));
     const restricted = evidence.checks.some(result => result.outcome === "restricted");
     const reasons = requiredChecks.map(check => `CHECK_REQUIRED:${check}`);

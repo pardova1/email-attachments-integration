@@ -44,8 +44,8 @@ export class ExactSoftwareConnectionCatalog implements ConnectionToolCatalog {
     }
     const tools:RegisteredProfile["tools"]={};
     for(const [check,tool] of Object.entries(input.tools)){
-      if(!REQUIRED_CONNECTION_CHECKS.includes(check as ConnectionCheck)||!tool||typeof tool.id!=="string"||!tool.id.trim()||typeof tool.run!=="function")throw new Error("INVALID_SOFTWARE_PROFILE_TOOL");
-      tools[check as ConnectionCheck]={id:tool.id,run:tool.run.bind(tool)};
+      if(!REQUIRED_CONNECTION_CHECKS.includes(check as ConnectionCheck)||!tool||typeof tool.id!=="string"||!tool.id.trim()||typeof tool.run!=="function"||tool.isCurrent!==undefined&&typeof tool.isCurrent!=="function")throw new Error("INVALID_SOFTWARE_PROFILE_TOOL");
+      tools[check as ConnectionCheck]={id:tool.id,run:tool.run.bind(tool),isCurrent:tool.isCurrent?.bind(tool)};
     }
     this.profiles.set(key,{id:input.id,environment:structuredClone(environment),reviewedAt:input.reviewedAt,expiresAt:input.expiresAt,sourceReference:input.sourceReference,tools});
   }
@@ -58,6 +58,14 @@ export class ExactSoftwareConnectionCatalog implements ConnectionToolCatalog {
     return {status:"matched" as const,environment:structuredClone(profile.environment),profileId:profile.id,sourceReference:profile.sourceReference,expiresAt:profile.expiresAt};
   }
 
+  withdraw(environment:ConnectionEnvironment) {
+    return this.profiles.delete(this.key(this.normalized(environment)));
+  }
+  private current(profile:RegisteredProfile) {
+    const now=this.clock().getTime();
+    return Number.isFinite(now)&&Date.parse(profile.reviewedAt)<=now&&Date.parse(profile.expiresAt)>now&&this.profiles.get(this.key(profile.environment))===profile;
+  }
+
   async toolsFor(environment:ConnectionEnvironment,signal:AbortSignal) {
     signal.throwIfAborted();
     const match=this.lookup(environment),tools:RegisteredProfile["tools"]={};
@@ -66,13 +74,15 @@ export class ExactSoftwareConnectionCatalog implements ConnectionToolCatalog {
     for(const check of REQUIRED_CONNECTION_CHECKS){
       const tool=profile.tools[check];
       if(!tool)continue;
-      tools[check]={id:`${profile.id}:${tool.id}`,run:async(actual,probeSignal)=>{
+      tools[check]={id:`${profile.id}:${tool.id}`,isCurrent:()=>this.current(profile)&&(!tool.isCurrent||tool.isCurrent()===true),run:async(actual,probeSignal)=>{
         probeSignal.throwIfAborted();
         const now=this.clock().getTime();
         if(!Number.isFinite(now)||Date.parse(profile.expiresAt)<=now||Date.parse(profile.reviewedAt)>now||this.profiles.get(this.key(profile.environment))!==profile)throw new Error("SOFTWARE_PROFILE_EXPIRED_OR_REPLACED");
         if(this.key(this.normalized(actual))!==this.key(profile.environment))throw new Error("SOFTWARE_PROFILE_ENVIRONMENT_MISMATCH");
+        if(tool.isCurrent&&tool.isCurrent()!==true)throw new Error("PROBE_SOURCE_INVALIDATED");
         const result=await tool.run(structuredClone(profile.environment),probeSignal);
         probeSignal.throwIfAborted();
+        if(tool.isCurrent&&tool.isCurrent()!==true)throw new Error("PROBE_SOURCE_INVALIDATED");
         const completed=this.clock().getTime();
         if(!Number.isFinite(completed)||Date.parse(profile.expiresAt)<=completed||Date.parse(profile.reviewedAt)>completed||this.profiles.get(this.key(profile.environment))!==profile)throw new Error("SOFTWARE_PROFILE_EXPIRED_OR_REPLACED");
         if(result.validUntil!==undefined){

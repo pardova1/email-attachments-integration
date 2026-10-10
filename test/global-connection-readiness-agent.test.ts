@@ -65,3 +65,15 @@ test("evidence requires unique referenced tests and bounded freshness",()=>{
  const stale=evidence();stale.expiresAt=new Date(now.getTime()+25*60*60*1000).toISOString();
  assert.throws(()=>agent.record(stale,now),/INVALID_CONNECTION_EVIDENCE_WINDOW/);
 });
+test("invalidated evidence stays unverified until a new record replaces it",()=>{
+ const agent=new GlobalConnectionReadinessAgent();let current=true;
+ agent.record(evidence(),now,()=>current);assert.equal(agent.assess(environment,now).status,"verified");
+ current=false;assert.equal(agent.assess(environment,now).status,"unverified");
+ current=true;assert.equal(agent.assess(environment,now).status,"unverified");
+ agent.record(evidence(),now,()=>current);assert.equal(agent.assess(environment,now).status,"verified");
+});
+test("failed evidence-source guards invalidate readiness without leaking exception details",()=>{
+ const agent=new GlobalConnectionReadinessAgent();agent.record(evidence(),now,()=>{throw new Error("PRIVATE_ADAPTER_DETAIL");});
+ const result=agent.assess(environment,now);assert.equal(result.status,"unverified");assert.deepEqual(result.requiredChecks,[...REQUIRED_CONNECTION_CHECKS]);
+ assert.deepEqual(result.reasons,["EVIDENCE_SOURCE_INVALIDATED"]);assert.equal(JSON.stringify(result).includes("PRIVATE_ADAPTER_DETAIL"),false);
+});
