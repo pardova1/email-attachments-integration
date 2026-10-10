@@ -1,3 +1,4 @@
+import {createConnectionCheckRouter} from "./http/connection-check-router.js";
 import { HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE } from "./http/health-contract.js";
 import express from "express";
 import { z } from "zod";
@@ -101,6 +102,8 @@ const senderAuthenticator = new SupabaseSenderAuthenticator(
 );
 
 app.use(express.json({ limit: "1mb" }));
+// Live discovery/probe adapters must be supplied before connection checks can pass.
+app.use("/v1/connection",createConnectionCheckRouter({authenticator:senderAuthenticator}));
 app.get("/health", (_req, res) => res.setHeader(HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE).json({ ok: true }));
 
 const createSchema = z.object({
