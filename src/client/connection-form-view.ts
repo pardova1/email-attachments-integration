@@ -1,7 +1,6 @@
 import type {ConnectionCheckClient,ConnectionCheckInput,ConnectionClientResult} from "./connection-check-client.js";
 import {ConnectionFormModel} from "./connection-form-model.js";
-import {CONNECTION_TRANSLATIONS} from "../email/connection-languages.js";
-import {PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE} from "../incidents/public-incident-notification.js";
+import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice} from "../email/connection-languages.js";
 
 // Embed in an authenticated app. Values become text nodes, never HTML; the
 // client owns authorization and submits JSON rather than exposing tokens in forms.
@@ -30,7 +29,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
    const submit=make("button",text.submit);submit.type="submit";submit.disabled=!state.canSubmit;form.append(submit);form.addEventListener("submit",event=>{event.preventDefault();if(model.state().canSubmit)void model.submit();else void model.check(options.software);});container.append(form,make("p",text.note));
    expiryTimer=setTimeout(()=>{if(!disposed)model.refresh();},Math.max(1,Math.min(Date.parse(result.form.expiresAt)-Date.now(),2_147_483_647)));
   }else{
-   if(state.phase==="unavailable"||state.phase==="assessed"&&result?.retryRequired){const notice=make("p",PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE);notice.setAttribute("role","alert");container.append(notice);}
+   if(state.phase==="unavailable"||state.phase==="assessed"&&result?.retryRequired){const notice=make("p",connectionDifficultyNotice(state.language));notice.setAttribute("role","alert");container.append(notice);}
    const check=make("button",text.submit);check.type="button";check.disabled=state.phase==="checking"||state.phase==="submitting";check.addEventListener("click",()=>void model.check(options.software));container.append(check);
    if(state.phase==="assessed"&&result?.status==="assessed"&&!assessmentDelivered){assessmentDelivered=true;options.onAssessed?.(result);}
   }
