@@ -16,7 +16,7 @@ export interface ConnectionEvidence {
   environment: ConnectionEnvironment;
   checkedAt: string;
   expiresAt: string;
-  recipientNeedsInstallation: boolean;
+  recipientNeedsInstallation: boolean | "unknown";
   checks: { check: ConnectionCheck; outcome: "passed" | "failed" | "restricted"; testReference: string }[];
 }
 
@@ -45,6 +45,7 @@ export class GlobalConnectionReadinessAgent {
     if (!Number.isFinite(now.getTime()) || !Number.isFinite(checked) || !Number.isFinite(expires) || checked > now.getTime() || expires <= checked || expires - checked > MAX_EVIDENCE_AGE_MS) {
       throw new Error("INVALID_CONNECTION_EVIDENCE_WINDOW");
     }
+    if (![true, false, "unknown"].includes(input.recipientNeedsInstallation)) throw new Error("INVALID_RECIPIENT_INSTALLATION_EVIDENCE");
     const checks = new Set<ConnectionCheck>();
     for (const result of input.checks) {
       if (!REQUIRED_CONNECTION_CHECKS.includes(result.check) || checks.has(result.check) || !result.testReference.trim() || !["passed", "failed", "restricted"].includes(result.outcome)) {
@@ -70,7 +71,8 @@ export class GlobalConnectionReadinessAgent {
     const requiredChecks = REQUIRED_CONNECTION_CHECKS.filter(check => !evidence.checks.some(result => result.check === check && result.outcome === "passed"));
     const restricted = evidence.checks.some(result => result.outcome === "restricted");
     const reasons = requiredChecks.map(check => `CHECK_REQUIRED:${check}`);
-    if (evidence.recipientNeedsInstallation) reasons.push("RECIPIENT_INSTALLATION_REQUIRED");
+    if (evidence.recipientNeedsInstallation === "unknown") reasons.push("RECIPIENT_INSTALLATION_UNVERIFIED");
+    else if (evidence.recipientNeedsInstallation) reasons.push("RECIPIENT_INSTALLATION_REQUIRED");
     const status = restricted ? "restricted" as const : reasons.length ? "not-ready" as const : "verified" as const;
     return { environment: normalized, status, requiredChecks, reasons, checkedAt: evidence.checkedAt, expiresAt: evidence.expiresAt };
   }

@@ -38,3 +38,9 @@ The Global Connection Readiness Agent tracks exact country, network, email provi
 Production tools must supply country/provider/software discovery, current compatibility documentation, network probes from the relevant locations, sender-to-recipient delivery tests, and large-file transfer/integrity tests. Evidence may remain current for at most 24 hours and must be refreshed continuously. Restricted paths remain research items and require an authorized viable integration before activation.
 
 The current agent evaluates supplied test evidence in memory. It does not independently run worldwide probes, send email, or provide a continuously deployed research service. Production requires durable evidence storage, scheduled discovery/probes, configured providers, monitoring, and actual testing across countries and software environments. The sample tests use synthetic environments and do not certify real country access.
+
+## Connection validation runner
+
+The Global Connection Validation Runner accepts one configured probe tool for each required check. It runs those tools for an exact environment, collects referenced results, and submits an evidence snapshot to the readiness agent. Missing tools are returned explicitly. Failed, invalid, restricted, and timed-out probes cannot establish readiness; an absent recipient-installation result stays unknown and blocks verification. Exceptions are summarized without exposing provider error details.
+
+Each probe has a configurable timeout of at most 60 seconds. Cancellation stops a run without publishing partial evidence. Probe tools receive an abort signal and should stop their underlying operations; the runner also stops waiting if a tool ignores cancellation. Evidence defaults to a 15-minute lifetime measured from the start of validation. No production probe tools are registered by this implementation, so it cannot currently certify real worldwide access or send test emails.
