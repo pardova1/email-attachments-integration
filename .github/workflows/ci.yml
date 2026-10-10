@@ -66,5 +66,6 @@ jobs:
           test/https-download-integrity-probe.test.ts
           test/connection-check-http.test.ts
           test/connection-check-client.test.ts
+          test/connection-form-model.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high

@@ -136,3 +136,11 @@ The shipped server has no live coordinator factory yet. Authenticated connection
 The client exposes safe error codes for authentication, rejected requests, unavailable checks, and invalid responses. Timeouts and cancellation release pending operations and response streams. A local HTTP integration test exercises the client against the real router through a test-only transport rewrite; the shipped client requires HTTPS.
 
 The application UI still must instantiate this client with its authenticated session, render the returned dropdown fields/language options, and call `submit` after selection. This client does not install the application, discover countries by itself, or implement live provider integrations. It introduces no new dependency; it uses the existing validation library.
+
+### Embeddable connection form
+
+`mountConnectionAssistance` adds a DOM form component backed by `ConnectionCheckClient`. It starts automatic checks on mount, renders only returned missing fields, submits authenticated JSON through the client, and exposes all 38 installed language packs. Persian, Arabic, Urdu, Hebrew, Sorani Kurdish, and Pashto use right-to-left layout. Changing language preserves selected IDs; changing a prerequisite clears incompatible later selections. Labels and option text are inserted as text nodes, not HTML. Focus is restored after dropdown updates.
+
+`ConnectionFormModel` rejects expired/incomplete submissions, cancels superseded operations, ignores late responses, and aborts work on disposal. Host code receives assessment callbacks once per completed assessment and must inspect the readiness status before proceeding. Unavailable or not-ready results use the existing generic technical-difficulties notice rather than inventing customer dropdown requirements. That notice still needs full language localization.
+
+The component is ready for embedding, but there is no published application shell or browser bundle yet. Model regression tests and TypeScript compilation cover the component logic; production browser/device validation remains pending. Integration still requires an authenticated session, HTTPS API configuration, live discovery adapters, styling, and application distribution.
