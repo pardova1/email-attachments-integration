@@ -161,12 +161,12 @@ test("every built-in language renders complete translated connection fields",asy
   assert.ok(html.includes(`lang="${tag}" dir="${translation.direction}"`),tag);
   for(const field of keys){
    assert.ok(translation.fields[field].trim(),`${tag}: ${field}`);
-   assert.ok(html.includes(`<label for="${field}">${translation.fields[field]}</label>`),`${tag}: ${field}`);
+   assert.ok(html.includes(`<label for="${field}">${translation.fields[field].replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]!))}</label>`),`${tag}: ${field}`);
   }
   assert.ok(html.includes(`<button type="submit">${translation.submit}</button>`),tag);
   assert.ok(html.includes(`name="language" value="${tag}"`),tag);
  }
- assert.equal(Object.keys(CONNECTION_TRANSLATIONS).length,25);
+ assert.equal(Object.keys(CONNECTION_TRANSLATIONS).length,38);
 });
 test("new regional preferences select translated base languages with correct text direction",async()=>{
  const {selectConnectionLanguage}=await import("../src/email/connection-languages.js");
@@ -175,4 +175,15 @@ test("new regional preferences select translated base languages with correct tex
   assert.equal(selectConnectionLanguage(region),tag);
   assert.ok(renderConnectionFallback(form,"/connection-assistance",region).includes(`lang="${tag}" dir="${direction}"`));
  }
+});
+
+test("Iran Kuwait and African regional language preferences remain independent of routing",async()=>{
+ const {selectConnectionLanguage}=await import("../src/email/connection-languages.js");
+ const form=new CustomerConnectionFallback(choices,()=>now).prepare(known,["country"])!;
+ for(const [region,tag,direction] of [["fa-IR","fa","rtl"],["ar-KW","ar","rtl"],["ckb-IQ","ckb","rtl"],["ku-TR","ku","ltr"],["ps-AF","ps","rtl"],["sw-KE","sw","ltr"],["am-ET","am","ltr"],["ha-NG","ha","ltr"],["yo-NG","yo","ltr"],["ig-NG","ig","ltr"],["zu-ZA","zu","ltr"],["xh-ZA","xh","ltr"],["so-SO","so","ltr"],["rw-RW","rw","ltr"],["sn-ZW","sn","ltr"]]){
+  assert.equal(selectConnectionLanguage(region),tag);
+  assert.ok(renderConnectionFallback(form,"/connection-assistance",region).includes(`lang="${tag}" dir="${direction}"`));
+  assert.equal(form.fields[0].options[0].value,"NO");
+ }
+
 });
