@@ -22,6 +22,8 @@ test("live HTTP sender routes reject absent wrong-transfer and recipient credent
  });
  const health=await fetch(`http://127.0.0.1:${port}/health`,{method:"HEAD"});
  assert.equal(health.status,200);assert.equal(health.headers.get("X-Email-Bridge-Health"),"1");
+ const connection=await fetch(`http://127.0.0.1:${port}/v1/connection/check`,{method:"POST",headers:{"content-type":"application/json"},body:"{}"});
+ assert.equal(connection.status,401);assert.deepEqual(await connection.json(),{error:"SENDER_AUTHENTICATION_REQUIRED"});
  const sender=new SenderTransferAccessService("http-test-secret");
  const recipient=new RecipientAccessService("http-test-secret");
  const deadline=new Date(Date.now()+60_000);

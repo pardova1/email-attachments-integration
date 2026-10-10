@@ -31,6 +31,11 @@ export class AutomaticConnectionCoordinator {
     if (!Number.isInteger(internalTimeoutMs) || internalTimeoutMs < 1 || internalTimeoutMs > 60_000) throw new Error("INVALID_AUTOMATIC_CONNECTION_POLICY");
   }
 
+  assertCustomerScope(scope:string) {
+    requireConnectionCustomerScope(scope);
+    if(this.customerScope!==scope)throw new Error("CONNECTION_COORDINATOR_SCOPE_MISMATCH");
+  }
+
   // Automatic discovery remains the first step; no manual input is required here.
   async check(signal?: AbortSignal) {
     signal?.throwIfAborted();
