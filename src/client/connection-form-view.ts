@@ -1,4 +1,5 @@
 import type {ConnectionCheckClient,ConnectionCheckInput,ConnectionClientResult} from "./connection-check-client.js";
+import {observeConnectionFormLifecycle} from "./connection-form-lifecycle.js";
 import {ConnectionFormModel} from "./connection-form-model.js";
 import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice} from "../email/connection-languages.js";
 
@@ -39,6 +40,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
   }
   if(focusName&&/^[a-zA-Z-]+$/.test(focusName))container.querySelector<HTMLElement>(`[name="${focusName}"]`)?.focus();
  });
+ const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,()=>model.refresh());
  void model.check(options.software);
- return {model,dispose(){if(disposed)return;disposed=true;if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
+ return {model,dispose(){if(disposed)return;disposed=true;stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
 }
