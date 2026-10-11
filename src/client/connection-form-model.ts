@@ -1,5 +1,5 @@
 import type {ConnectionCheckClient,ConnectionClientResult,ConnectionCheckInput,ConnectionSelectionInput} from "./connection-check-client.js";
-import {selectConnectionLanguage} from "../email/connection-languages.js";
+import {selectConnectionLanguage,CONNECTION_TRANSLATIONS,validateConnectionFormTranslations,type ConnectionTranslation} from "../email/connection-languages.js";
 type Field=keyof ConnectionSelectionInput["selections"];
 const fields:Field[]=["country","network","provider","client","platform","softwareVersion"];
 export interface ConnectionFormState {
@@ -20,7 +20,10 @@ export class ConnectionFormModel {
  private disposed=false;
  private readinessWithdrawalReason?:string;
  private readonly listeners=new Set<(state:ConnectionFormState)=>void>();
- constructor(private readonly client:Pick<ConnectionCheckClient,"check"|"submit">,language="en",private readonly clock=()=>new Date()) {this.language=selectConnectionLanguage(language);}
+ private readonly translations:Record<string,ConnectionTranslation>;
+ constructor(private readonly client:Pick<ConnectionCheckClient,"check"|"submit">,language="en",private readonly clock=()=>new Date(),translations:Record<string,ConnectionTranslation>=CONNECTION_TRANSLATIONS) {
+  this.translations=structuredClone(translations);validateConnectionFormTranslations(this.translations);this.language=selectConnectionLanguage(language,this.translations);
+ }
  state():ConnectionFormState {
   const form=this.result?.status==="customer-input-required"?this.result.form:undefined,now=this.clock().getTime();
   const expired=!!form&&(!Number.isFinite(now)||Date.parse(form.expiresAt)<=now||!Number.isFinite(Date.parse(form.expiresAt)));
@@ -37,7 +40,7 @@ export class ConnectionFormModel {
   return structuredClone({phase:this.phase,language:this.language,result,selections:this.selections,expired,canSubmit:this.phase==="choosing"&&!expired&&complete});
  }
  subscribe(listener:(state:ConnectionFormState)=>void){this.active();this.listeners.add(listener);listener(this.state());return ()=>this.listeners.delete(listener);}
- setLanguage(language:string){this.active();this.language=selectConnectionLanguage(language);this.emit();}
+ setLanguage(language:string){this.active();this.language=selectConnectionLanguage(language,this.translations);this.emit();}
  choose(field:Field,id:string){
   this.active();if(this.phase!=="choosing"||this.state().expired||this.result?.status!=="customer-input-required")throw new Error("CONNECTION_FORM_NOT_READY");
   const offered=this.result.form.fields.find(item=>item.key===field),option=offered?.options.find(item=>item.id===id);

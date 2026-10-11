@@ -2,6 +2,7 @@ import {PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE} from "../incidents/public-incident
 
 export interface ConnectionTranslation {
   language: string;
+  difficultyNotice?:string;
   direction: "ltr" | "rtl";
   title: string;
   message: string;
@@ -111,8 +112,15 @@ export const CONNECTION_DIFFICULTY_NOTICES: Readonly<Record<string,string>> = Ob
  rw:"Ibibazo bya tekiniki. Gerageza kongera nyuma.",
  sn:"Matambudziko ehunyanzvi. Ndapota edzazve gare gare."
 });
-export function connectionDifficultyNotice(requested:string):string {
- return CONNECTION_DIFFICULTY_NOTICES[selectConnectionLanguage(requested)]??PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE;
+export function connectionDifficultyNotice(requested:string,catalog:Record<string,ConnectionTranslation>=CONNECTION_TRANSLATIONS):string {
+ const tag=selectConnectionLanguage(requested,catalog);
+ return catalog[tag].difficultyNotice??CONNECTION_DIFFICULTY_NOTICES[tag]??PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE;
+}
+export function validateConnectionFormTranslations(catalog:Record<string,ConnectionTranslation>){
+ selectConnectionLanguage("en",catalog);
+ for(const [tag,translation] of Object.entries(catalog)){
+  if(translation.difficultyNotice!==undefined&&(typeof translation.difficultyNotice!=="string"||!translation.difficultyNotice.trim())||!CONNECTION_DIFFICULTY_NOTICES[tag]&&!translation.difficultyNotice)throw new Error("CONNECTION_DIFFICULTY_TRANSLATION_REQUIRED");
+ }
 }
 
 // Choose the first supported device preference, skipping unsupported languages

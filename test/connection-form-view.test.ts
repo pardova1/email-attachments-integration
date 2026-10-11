@@ -45,3 +45,20 @@ test("disposing the mounted form aborts transport and removes resume/network han
  for(const event of ["focus","pageshow","offline","online"])window.dispatchEvent(new window.Event(event));document.dispatchEvent(new window.Event("visibilitychange"));
  assert.equal(container.childNodes.length,0);await new Promise(resolve=>setImmediate(resolve));
 });
+
+
+test("host language packs reach the mounted selector fields and difficulty notice",async()=>{
+ const {CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ const custom={en:CONNECTION_TRANSLATIONS.en,bn:{...structuredClone(CONNECTION_TRANSLATIONS.en),language:"বাংলা",title:"সংযোগ পরীক্ষা",difficultyNotice:"প্রযুক্তিগত সমস্যা। পরে আবার চেষ্টা করুন।"}};
+ const {document}=parseHTML('<html><body><main id="connection"></main></body></html>');const container=document.getElementById("connection") as unknown as HTMLElement;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async()=>response(assessed()));
+ const mounted=mountConnectionAssistance(container,client,{language:"bn-BD",translations:custom});
+ try{custom.bn.title="changed outside";await settled(mounted.model);assert.equal(container.lang,"bn");assert.equal(container.querySelector("h1")?.textContent,"সংযোগ পরীক্ষা");assert.equal(container.querySelector('[role="alert"]')?.textContent,"প্রযুক্তিগত সমস্যা। পরে আবার চেষ্টা করুন।");assert.equal(container.querySelectorAll('select[name="connection-language"] option').length,2);mounted.model.setLanguage("en");assert.equal(container.lang,"en");}
+ finally{mounted.dispose();}
+});
+
+test("new language packs require a complete difficulty message before mounting",async()=>{
+ const {CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");const {document}=parseHTML('<html><body><main></main></body></html>');const container=document.querySelector("main") as unknown as HTMLElement;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token");
+ assert.throws(()=>mountConnectionAssistance(container,client,{translations:{bn:{...CONNECTION_TRANSLATIONS.en,language:"বাংলা"}}}),/CONNECTION_DIFFICULTY_TRANSLATION_REQUIRED/);assert.equal(container.childNodes.length,0);
+});
