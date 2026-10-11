@@ -4,7 +4,7 @@ export function observeConnectionFormLifecycle(
  document:Pick<Document,"addEventListener"|"removeEventListener"|"visibilityState">,
  window:Pick<Window,"addEventListener"|"removeEventListener">|null,
  refresh:()=>void,
- invalidate:()=>void=refresh,
+ invalidate:(online?:boolean)=>void=refresh,
  recover?:()=>void,
  recoveryDelayMs=250
 ):()=>void {
@@ -16,8 +16,8 @@ export function observeConnectionFormLifecycle(
   if(!recover||!pending||disposed||document.visibilityState==="hidden")return;
   timer=setTimeout(()=>{timer=undefined;if(disposed||!pending||document.visibilityState==="hidden")return;pending=false;recover();},recoveryDelayMs);
  };
- const offline=()=>{if(disposed)return;pending=false;cancel();invalidate();};
- const online=()=>{if(disposed)return;invalidate();pending=true;schedule();};
+ const offline=()=>{if(disposed)return;pending=false;cancel();invalidate(false);};
+ const online=()=>{if(disposed)return;invalidate(true);pending=true;schedule();};
  const resume=()=>{if(!disposed&&document.visibilityState==="visible"){refresh();if(pending)schedule();}};
  document.addEventListener("visibilitychange",resume);
  window?.addEventListener("pageshow",resume);
