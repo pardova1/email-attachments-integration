@@ -276,3 +276,9 @@ Valid observations that omit details still offer dropdowns for the missing field
 Each discovery source now retries a thrown error or timeout once by default, with a 100 ms delay. Successful sources remain snapshotted and are not run again while another source recovers. Valid unknown details and malformed successful responses are not retried. Exhaustion keeps the generic internal retry result; it cannot create customer work or readiness. Every attempt gets a fresh timeout signal, and late timed-out results are ignored.
 
 Operators can configure `sourceRetry` on the observed coordinator factory: `maxAttempts` is 1–3 total attempts and `delayMs` is 0–1000. The policy is validated and snapshotted at setup. Source timeouts and the enclosing coordinator/HTTP deadlines continue to bound the work. Cancellation interrupts the delay, removes its listener/timer, and prevents another attempt. This is automatic recovery within the active request; it does not create a persistent background worker or certify live connectivity.
+
+### Complete dropdown combinations
+
+Fallback preparation now retains a choice only if it occurs in at least one complete combination satisfying all offered prerequisites. A software version requiring an app and network that cannot coexist is removed along with earlier choices that lead only to that dead end. Multiple valid branches remain available. Removed IDs cannot be submitted. The normal probes still determine actual compatibility after selection.
+
+The search memoizes only earlier values used by remaining prerequisites, so independent dropdowns do not require enumerating their Cartesian product. Preparation is capped at 10,000 memoized states and 50,000 option checks; exceeding either limit stays an internal retry rather than exposing an unchecked form. Tests cover contradictory dependencies, absence of a complete combination, retained valid branches, and large independent catalogs.
