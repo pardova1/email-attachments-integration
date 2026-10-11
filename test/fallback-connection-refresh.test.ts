@@ -56,3 +56,19 @@ test("fallback form expires with the automatic details it retains",async()=>{
  const first=await form(coordinator);assert.equal(first.expiresAt,new Date(now.getTime()+1000).toISOString());current=new Date(first.expiresAt);await assert.rejects(coordinator.submitFallback(first.id,{provider:"mail"}),/CONNECTION_FORM_EXPIRED/);assert.equal(discoveries,1);
  assert.equal((await coordinator.check()).status,"pending-internal-retry");
 });
+test("expiry during refresh replaces the owned form without probing old selections",async()=>{
+ for(const removedElsewhere of [false,true]){
+  let current=now,refresh=false,oldId="",calls=0,discoveries=0;
+  const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"mail"}]},()=>current);
+  const coordinator=new AutomaticConnectionCoordinator({async discover(){discoveries++;if(refresh){current=new Date(now.getTime()+300_000);if(removedElsewhere)assert.throws(()=>fallback.resolve("sender-a",oldId,{provider:"mail"}),/CONNECTION_FORM_EXPIRED/);}return {environment:known,observedAt:current.toISOString(),sourceReference:"fresh-observation"};}},{async toolsFor(){calls++;return {};}},new GlobalConnectionReadinessAgent(),()=>current,10_000,fallback,"sender-a");
+  const first=await form(coordinator);oldId=first.id;refresh=true;const result=await coordinator.submitFallback(first.id,{provider:"mail"});if(result.status!=="customer-input-required")throw new Error("EXPECTED_REPLACEMENT_FORM");assert.notEqual(result.form.id,first.id);assert.deepEqual(result.form.fields.map(field=>field.key),["provider"]);assert.equal(result.form.expiresAt,new Date(current.getTime()+300_000).toISOString());assert.equal(calls,0);assert.equal(discoveries,2);
+ }
+});
+test("complete fresh discovery after mid-refresh expiry uses automatic validation",async()=>{
+ let current=now,refresh=false;const selected:unknown[]=[];const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"mail"}]},()=>current);
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){if(refresh)current=new Date(now.getTime()+300_000);return {environment:refresh?{...known,provider:"detected-mail"}:known,observedAt:current.toISOString(),sourceReference:"fresh-observation"};}},{async toolsFor(environment){selected.push(environment);return {};}},new GlobalConnectionReadinessAgent(),()=>current,10_000,fallback,"sender-a");
+ const first=await form(coordinator);refresh=true;const result=await coordinator.submitFallback(first.id,{provider:"mail"});if(result.status!=="assessed")throw new Error("EXPECTED_AUTOMATIC_ASSESSMENT");assert.equal(result.environmentSource,"automatic");assert.deepEqual(selected,[{...known,provider:"detected-mail"}]);assert.equal(result.retryRequired,true);
+});
+test("expiry recovery never bypasses initial ownership or selection checks",async()=>{
+ const item=setup(),first=await form(item.coordinator);await assert.rejects(item.coordinator.submitFallback(first.id,{provider:"invented"}),/INVALID_CONNECTION_SELECTION/);await assert.rejects(item.coordinator.submitFallback("unknown-id",{provider:"mail"}),/CONNECTION_FORM_UNAVAILABLE/);assert.equal(item.selected.length,0);
+});

@@ -360,3 +360,9 @@ The validation runner accepts an optional absolute evidence ceiling. Tool select
 Coordinator-generated dropdown forms now expire no later than five minutes after their automatic observation timestamp. Previously, a form could keep offering choices based on retained network/software details after those observations became stale. The form deadline is the earliest of observation freshness, its ordinary 15-minute lifetime, and retained choice/profile deadlines. At the deadline, server submission rejects the form; the mounted UI uses its existing automatic expiry refresh to obtain fresh detection and choices.
 
 `CustomerConnectionFallback.prepare` accepts an optional absolute deadline. Invalid deadlines are rejected and already elapsed deadlines produce no form. Direct callers without a deadline retain their usual lifetime. Regression tests cover nearly stale observations, exact-deadline rejection before rediscovery, elapsed observations staying internal, and deadline precedence. Live integration and worldwide verification remain pending.
+
+### Forms expiring during submission refresh
+
+Fallback submission still checks form ownership, expiry, and offered selection IDs before discovery. If a valid owned form then expires while its automatic details are being refreshed, the coordinator now assesses the fresh discovery instead of returning a submission error. Missing details produce a new form with fresh deadlines; complete discovery goes through automatic validation. Old customer selections are not used for probes in either case.
+
+The same recovery applies if another request already removed that expired form during refresh. Initial unavailable, foreign, expired, or invalid-choice submissions still fail before discovery; recovery does not relax those checks. Tests cover direct expiry, concurrent expiration removal, complete fresh discovery, and initial validation. Live integration and worldwide verification remain pending.
