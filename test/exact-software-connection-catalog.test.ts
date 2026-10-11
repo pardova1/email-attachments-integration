@@ -127,3 +127,9 @@ test("adapter validity is retained through software profile wrappers",async()=>{
  active=true;assert.equal(agent.assess(environment,now).status,"unverified");
  await coordinator.check();assert.equal(agent.assess(environment,now).status,"verified");
 });
+test("padded operator profiles match trimmed discovery and expose canonical dropdown choices",async()=>{
+ const input=profile();input.environment=Object.fromEntries(Object.entries(environment).map(([key,value])=>[key,` ${value} `])) as unknown as ConnectionEnvironment;
+ const catalog=new ExactSoftwareConnectionCatalog([input],()=>now);assert.equal(catalog.lookup(environment).status,"matched");assert.equal(catalog.fallbackChoices({provider:" test-provider "}).provider![0].value,"test-provider");
+ const selected=await catalog.toolsFor(environment,new AbortController().signal);assert.equal((await selected.upload!.run(environment,new AbortController().signal)).outcome,"passed");
+ assert.equal(catalog.withdraw(environment),true);
+});

@@ -30,10 +30,11 @@ export class GlobalConnectionReadinessAgent {
   private readonly evidence = new Map<string, ConnectionEvidence>();
 
   private normalize(environment: ConnectionEnvironment): ConnectionEnvironment {
-    const normalized = { ...environment, country: environment.country.trim().toUpperCase() };
-    if (!/^[A-Z]{2}$/.test(normalized.country) || Object.values(normalized).some(value => !value.trim())) {
-      throw new Error("CONNECTION_ENVIRONMENT_REQUIRED");
-    }
+    const fields=["country","network","provider","client","platform","softwareVersion"] as const;
+    if(!environment||typeof environment!=="object"||fields.some(field=>typeof environment[field]!=="string"||!environment[field].trim()||environment[field].length>256||/[\x00-\x1f\x7f]/.test(environment[field])))throw new Error("CONNECTION_ENVIRONMENT_REQUIRED");
+    const normalized={} as ConnectionEnvironment;
+    for(const field of fields)normalized[field]=field==="country"?environment[field].trim().toUpperCase():environment[field].trim();
+    if(!/^[A-Z]{2}$/.test(normalized.country))throw new Error("CONNECTION_ENVIRONMENT_REQUIRED");
     return normalized;
   }
 
