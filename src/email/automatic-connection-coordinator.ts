@@ -61,7 +61,14 @@ export class AutomaticConnectionCoordinator {
       return this.internalRetry();
     }
     if(discovered.retryFields?.length)return this.internalRetry();
-    if(!this.fallback.matchesCurrent(this.customerScope!,formId,selections,discovered.environment))return this.assessDiscovery(discovered,signal);
+    try{
+      if(!this.fallback.matchesCurrent(this.customerScope!,formId,selections,discovered.environment))return this.assessDiscovery(discovered,signal);
+    }catch(error){
+      // Ownership and selections were checked before discovery. An expired form
+      // may also have been removed by another request while refresh was pending.
+      if(error instanceof Error&&["CONNECTION_FORM_EXPIRED","CONNECTION_FORM_UNAVAILABLE"].includes(error.message))return this.assessDiscovery(discovered,signal);
+      throw error;
+    }
     const environment=this.readiness.assess(selected,this.clock()).environment;
     return this.validate(environment,`customer-selection:${formId}`,"customer-selection",discovered.observedAt,signal);
   }
