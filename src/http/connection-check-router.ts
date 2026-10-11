@@ -59,17 +59,19 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
     const input=selection?selectionSchema.safeParse(req.body):checkSchema.safeParse(req.body);
     if(!input.success){status=400;error="INVALID_CONNECTION_REQUEST";throw new Error(error);}
     if(!options.coordinatorFor)throw new Error("CONNECTION_ADAPTERS_NOT_CONFIGURED");
-    if(activeTotal>=total||(active.get(customer.userId)??0)>=perCustomer)throw new Error("CONNECTION_CAPACITY_RETRY_REQUIRED");
+    const selectedLanguage=input.data.language!==undefined?selectConnectionLanguage(input.data.language,translations):selectPreferredConnectionLanguage(connectionLanguagePreferences(req.header("accept-language")),translations);
+    const pendingRetry=()=>({httpStatus:503,body:{status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:selectedLanguage}});
+    // A busy service is temporary: retry without admitting more adapter work.
+    if(activeTotal>=total||(active.get(customer.userId)??0)>=perCustomer)return pendingRetry();
     acquiredScope=customer.userId;active.set(acquiredScope,(active.get(acquiredScope)??0)+1);activeTotal++;
     const context:ConnectionRequestContext={requestReference:`connection-request:${randomUUID()}`,networkAddress:req.socket.remoteAddress??"",userAgent:req.header("user-agent")?.slice(0,2048),...("software" in input.data?{softwareHints:input.data.software}:{})};
-    const selectedLanguage=input.data.language!==undefined?selectConnectionLanguage(input.data.language,translations):selectPreferredConnectionLanguage(connectionLanguagePreferences(req.header("accept-language")),translations);
     let coordinator:AutomaticConnectionCoordinator;
     try{coordinator=await options.coordinatorFor({...customer},context,controller.signal);}
     catch{
      controller.signal.throwIfAborted();
      // Setup failures stay internal and use the client's bounded retry flow.
-     // Authentication, admission, and invalid selections are handled separately.
-     return {httpStatus:503,body:{status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:selectedLanguage}};
+     // Authentication, invalid requests, and invalid selections stay separate.
+     return pendingRetry();
     }
     controller.signal.throwIfAborted();
     coordinator.assertCustomerScope(customer.userId);
