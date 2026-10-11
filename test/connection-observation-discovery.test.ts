@@ -18,8 +18,8 @@ test("independent automatic observations produce normalized details with per-fie
  assert.equal(result.fieldSources.country,"network-observation");assert.equal(result.fieldSources.provider,"authorized-account");assert.equal(result.fieldSources.softwareVersion,"client-report");
  assert.match(result.sourceReference,/^automatic-discovery:/);
 });
-test("failed network discovery preserves software and asks only for missing network details",async()=>{
- const configured=sources();configured.network=async()=>{throw new Error("LOOKUP_UNAVAILABLE");};
+test("valid unknown network discovery preserves software and asks only for missing network details",async()=>{
+ const configured=sources();configured.network=async()=>({details:{},observedAt:now.toISOString(),sourceReference:"network-unknown"});
  const fallback=new CustomerConnectionFallback({country:[{id:"kw",label:"Kuwait",value:"KW"}],network:[{id:"net",label:"Test network",value:"test-network"}]},()=>now);
  const coordinator=new AutomaticConnectionCoordinator(new ConnectionObservationDiscovery(configured,()=>now),{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1");
  const result=await coordinator.check();assert.equal(result.status,"customer-input-required");
@@ -33,7 +33,7 @@ test("slow sources run concurrently and timeout without discarding successful ob
  const original=configured.software;configured.software=async signal=>{softwareStarted=true;return original(signal);};
  const result=await new ConnectionObservationDiscovery(configured,()=>now,10).discover(new AbortController().signal);
  assert.equal(softwareStarted,true);assert.equal(networkSignal?.aborted,true);
- assert.equal(result.environment.country,undefined);assert.equal(result.environment.softwareVersion,"1.2.3");
+ assert.equal(result.environment.country,undefined);assert.equal(result.environment.softwareVersion,"1.2.3");assert.deepEqual(result.retryFields,["country","network"]);
 });
 test("stale future malformed and cross-source fields cannot establish exact software",async()=>{
  const configured=sources();
@@ -66,4 +66,18 @@ test("invalid observation values remain unknown instead of becoming customer cho
  configured.provider=async()=>({details:{provider:"x".repeat(257)},observedAt:now.toISOString(),sourceReference:"provider"});
  const result=await new ConnectionObservationDiscovery(configured,()=>now).discover(new AbortController().signal);
  assert.equal(result.environment.country,undefined);assert.equal(result.environment.network,undefined);assert.equal(result.environment.provider,undefined);
+ assert.deepEqual(result.retryFields,["country","network","provider"]);
+});
+
+test("failed sources retain independent observations without creating customer work",async()=>{
+ const configured=sources();configured.network=async()=>{throw new Error("PRIVATE_LOOKUP_UNAVAILABLE");};
+ const discovery=new ConnectionObservationDiscovery(configured,()=>now),collected=await discovery.discover(new AbortController().signal);
+ assert.equal(collected.environment.provider,"test-provider");assert.equal(collected.environment.softwareVersion,"1.2.3");assert.deepEqual(collected.retryFields,["country","network"]);assert.equal(JSON.stringify(collected).includes("PRIVATE_LOOKUP_UNAVAILABLE"),false);
+ let probes=0;const fallback=new CustomerConnectionFallback({country:[{id:"kw",label:"Kuwait",value:"KW"}],network:[{id:"net",label:"Test network",value:"test-network"}]},()=>now);
+ const result=await new AutomaticConnectionCoordinator(discovery,{async toolsFor(){probes++;return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1").check();assert.equal(result.status,"pending-internal-retry");assert.equal(probes,0);
+});
+test("discovery recovers automatically after a temporary source failure",async()=>{
+ const configured=sources(),original=configured.network;let unavailable=true;configured.network=async signal=>{if(unavailable)throw new Error("TEMPORARY");return original(signal);};
+ const coordinator=new AutomaticConnectionCoordinator(new ConnectionObservationDiscovery(configured,()=>now),{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),()=>now);
+ assert.equal((await coordinator.check()).status,"pending-internal-retry");unavailable=false;assert.equal((await coordinator.check()).status,"assessed");
 });

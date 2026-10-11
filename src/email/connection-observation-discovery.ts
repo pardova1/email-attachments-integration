@@ -33,24 +33,25 @@ export class ConnectionObservationDiscovery implements ConnectionDiscoveryPort {
     const groups=Object.keys(GROUPS) as (keyof typeof GROUPS)[];
     const observations=await Promise.all(groups.map(async group=>{
       try{return {group,observation:structuredClone(await this.read(group,signal))};}
-      catch{signal.throwIfAborted();return undefined;}
+      catch{signal.throwIfAborted();return {group,observation:undefined};}
     }));
     signal.throwIfAborted();
     const current=this.clock();
     if(!Number.isFinite(current.getTime())||current.getTime()<started.getTime())throw new Error("INVALID_DISCOVERY_TIME");
-    const environment:Partial<ConnectionEnvironment>={},fieldSources:CollectedConnectionDiscovery["fieldSources"]={};
+    const environment:Partial<ConnectionEnvironment>={},fieldSources:CollectedConnectionDiscovery["fieldSources"]={},retryFields=new Set<keyof ConnectionEnvironment>();
     let oldest=current.getTime();
     for(const result of observations){
-      if(!result)continue;
       const {group,observation}=result;
-      if(!observation||typeof observation.observedAt!=="string"||typeof observation.sourceReference!=="string"||!observation.sourceReference.trim()||!observation.details||typeof observation.details!=="object")continue;
+      const failed=()=>{for(const field of GROUPS[group])retryFields.add(field);};
+      if(!observation||typeof observation.observedAt!=="string"||typeof observation.sourceReference!=="string"||!observation.sourceReference.trim()||!observation.details||typeof observation.details!=="object"||Array.isArray(observation.details)){failed();continue;}
       const observed=Date.parse(observation.observedAt);
-      if(!Number.isFinite(observed)||observed>current.getTime()||current.getTime()-observed>5*60*1000)continue;
+      if(!Number.isFinite(observed)||observed>current.getTime()||current.getTime()-observed>5*60*1000){failed();continue;}
       let used=false;
       for(const field of GROUPS[group]){
         const value=(observation.details as Partial<ConnectionEnvironment>)[field];
-        if(typeof value!=="string"||!value.trim()||value.length>256||/[\x00-\x1f\x7f*]/.test(value))continue;
-        if(field==="country"&&!/^[A-Z]{2}$/i.test(value.trim()))continue;
+        if(value===undefined||typeof value==="string"&&!value.trim())continue;
+        if(typeof value!=="string"||value.length>256||/[\x00-\x1f\x7f*]/.test(value)){retryFields.add(field);continue;}
+        if(field==="country"&&!/^[A-Z]{2}$/i.test(value.trim())){retryFields.add(field);continue;}
         // A version without an identified app must not be paired with another source.
         if(field==="softwareVersion"&&!environment.client)continue;
         environment[field]=field==="country"?value.trim().toUpperCase():value.trim();
@@ -59,7 +60,7 @@ export class ConnectionObservationDiscovery implements ConnectionDiscoveryPort {
       }
       if(used)oldest=Math.min(oldest,observed);
     }
-    return {environment,fieldSources,observedAt:new Date(oldest).toISOString(),sourceReference:`automatic-discovery:${randomUUID()}`};
+    return {environment,fieldSources,retryFields:[...retryFields],observedAt:new Date(oldest).toISOString(),sourceReference:`automatic-discovery:${randomUUID()}`};
   }
 
   private async read(group:keyof ConnectionObservationSources,external:AbortSignal) {

@@ -6,6 +6,8 @@ export interface AutomaticConnectionDiscovery {
   environment: Partial<ConnectionEnvironment>;
   observedAt: string;
   sourceReference: string;
+  // A source failed internally; missing details must not become customer work.
+  retryFields?:ConnectionField[];
 }
 
 // Implementations read trusted server/network observations and automatically
@@ -44,7 +46,7 @@ export class AutomaticConnectionCoordinator {
       discovered=await this.discover(signal);
     } catch {
       signal?.throwIfAborted();
-      return this.offerFallback({},[...CONNECTION_FIELDS]);
+      return this.internalRetry();
     }
     return this.assessDiscovery(discovered,signal);
   }
@@ -56,8 +58,9 @@ export class AutomaticConnectionCoordinator {
     let discovered:AutomaticConnectionDiscovery;
     try{discovered=await this.discover(signal);}catch{
       signal?.throwIfAborted();
-      return {status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};
+      return this.internalRetry();
     }
+    if(discovered.retryFields?.length)return this.internalRetry();
     if(!this.fallback.matchesCurrent(this.customerScope!,formId,selections,discovered.environment))return this.assessDiscovery(discovered,signal);
     const environment=this.readiness.assess(selected,this.clock()).environment;
     return this.validate(environment,`customer-selection:${formId}`,"customer-selection",signal);
@@ -67,16 +70,18 @@ export class AutomaticConnectionCoordinator {
     const discovered=await this.internalStep(probeSignal=>this.discovery.discover(probeSignal),signal);
     const observed=Date.parse(discovered.observedAt),now=this.clock();
     if(!Number.isFinite(observed)||!Number.isFinite(now.getTime())||observed>now.getTime()||now.getTime()-observed>5*60*1000||!discovered.sourceReference.trim())throw new Error("INVALID_AUTOMATIC_DISCOVERY");
+    if(discovered.retryFields!==undefined&&(!Array.isArray(discovered.retryFields)||discovered.retryFields.some(field=>!CONNECTION_FIELDS.includes(field))))throw new Error("INVALID_AUTOMATIC_DISCOVERY");
     return discovered;
   }
 
   private assessDiscovery(discovered:AutomaticConnectionDiscovery,signal?:AbortSignal){
     try{
+      if(discovered.retryFields?.length)return Promise.resolve(this.internalRetry());
       const missing=CONNECTION_FIELDS.filter(key=>typeof discovered.environment[key]!=="string"||!discovered.environment[key]?.trim()||key==="country"&&!/^[A-Z]{2}$/i.test(discovered.environment[key]!.trim()));
       if(missing.length)return Promise.resolve(this.offerFallback(discovered.environment,missing));
       const environment=this.readiness.assess(discovered.environment as ConnectionEnvironment,this.clock()).environment;
       return this.validate(environment,discovered.sourceReference,"automatic",signal);
-    }catch{return Promise.resolve(this.offerFallback({},[...CONNECTION_FIELDS]));}
+    }catch{return Promise.resolve(this.internalRetry());}
   }
 
   private offerFallback(known:Partial<ConnectionEnvironment>,missing:ConnectionField[]) {
@@ -84,8 +89,10 @@ export class AutomaticConnectionCoordinator {
       const form=this.fallback?.prepare(this.customerScope!,known,missing);
       if(form)return {status:"customer-input-required" as const,form,retryRequired:true as const};
     } catch { /* Catalog/capacity failure stays an internal retry. */ }
-    return {status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};
+    return this.internalRetry();
   }
+
+  private internalRetry(){return {status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};}
 
   private async validate(environment:ConnectionEnvironment,reference:string,source:"automatic"|"customer-selection",signal?:AbortSignal) {
     try {

@@ -74,12 +74,18 @@ test("dropdown renderer uses accessible required selects and escapes catalog lab
 });
 
 
-test("complete detection failure can offer every required dropdown from its catalog",async()=>{
+test("complete detection failure stays internal even when every dropdown is configured",async()=>{
  const completeChoices={...choices,...Object.fromEntries(Object.entries(known).map(([key,value])=>[key,[{id:value,label:value,value}]]))};
  const fallback=new CustomerConnectionFallback(completeChoices,()=>now);
  const coordinator=new AutomaticConnectionCoordinator({async discover(){throw new Error("DISCOVERY_UNAVAILABLE");}},{async toolsFor(){return toolset();}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1");
- const result=await coordinator.check();assert.equal(result.status,"customer-input-required");
- if(result.status==="customer-input-required")assert.deepEqual(result.form.fields.map(field=>field.key),["country","network","provider","client","platform","softwareVersion"]);
+ const result=await coordinator.check();assert.equal(result.status,"pending-internal-retry");
+});
+
+test("valid completely unknown discovery can still offer the required dropdowns",async()=>{
+ const completeChoices={...choices,...Object.fromEntries(Object.entries(known).map(([key,value])=>[key,[{id:value,label:value,value}]]))};
+ const fallback=new CustomerConnectionFallback(completeChoices,()=>now);
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment:{},observedAt:now.toISOString(),sourceReference:"valid-unknown"};}},{async toolsFor(){throw new Error("NO_PROBES_BEFORE_SELECTIONS");}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1");
+ const result=await coordinator.check();if(result.status!=="customer-input-required")throw new Error("EXPECTED_FORM");assert.deepEqual(result.form.fields.map(field=>field.key),["country","network","provider","client","platform","softwareVersion"]);
 });
 
 const dependentChoices={
