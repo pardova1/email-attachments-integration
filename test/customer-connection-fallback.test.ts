@@ -258,3 +258,27 @@ test("unreachable dropdown requirements stay an internal retry instead of a cust
  const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:now.toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){toolCalls++;return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-1");
  const result=await coordinator.check();assert.equal(result.status,"pending-internal-retry");assert.equal(result.retryRequired,true);assert.equal(toolCalls,0);
 });
+
+
+test("device preferences skip unsupported languages before selecting the first supported pack",async()=>{
+ const {selectPreferredConnectionLanguage}=await import("../src/email/connection-languages.js");
+ assert.equal(selectPreferredConnectionLanguage(["is-IS","fa-IR","en-US"]),"fa");
+ assert.equal(selectPreferredConnectionLanguage(["ar-KW","sv-SE"]),"ar");
+ assert.equal(selectPreferredConnectionLanguage(["sv-SE","nb-NO"]),"sv");
+ assert.equal(selectPreferredConnectionLanguage(["sw-KE","en-US"]),"sw");
+});
+test("invalid and absent device language preferences fall back safely",async()=>{
+ const {selectPreferredConnectionLanguage}=await import("../src/email/connection-languages.js");
+ assert.equal(selectPreferredConnectionLanguage([]),"en");
+ assert.equal(selectPreferredConnectionLanguage(["invalid_tag","","is-IS"]),"en");
+ assert.equal(selectPreferredConnectionLanguage(["invalid_tag","FA-ir"]),"fa");
+});
+test("preferred language matching supports extensible catalogs without changing country choices",async()=>{
+ const {selectPreferredConnectionLanguage,CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ const catalog={en:CONNECTION_TRANSLATIONS.en,"fr-CA":CONNECTION_TRANSLATIONS.fr,fr:CONNECTION_TRANSLATIONS.fr};
+ assert.equal(selectPreferredConnectionLanguage(["fr-CA","en"],catalog),"fr-CA");
+ assert.throws(()=>selectPreferredConnectionLanguage([],{en:{...CONNECTION_TRANSLATIONS.en,title:""}}),/INVALID_CONNECTION_LANGUAGE_CATALOG/);
+ const store=new CustomerConnectionFallback(choices,()=>now),form=store.prepare("sender-1",known,["country"])!;
+ renderConnectionFallback(form,"/connection",selectPreferredConnectionLanguage(["fa-IR"]));
+ assert.equal(store.resolve("sender-1",form.id,{country:"norway"}).country,"NO");
+});
