@@ -198,3 +198,9 @@ A distribution test builds and imports the actual bundle without DOM globals, ch
 When the host does not supply an explicit language, the mounted browser form selects the first supported entry in the device's ordered language preferences. Unsupported or malformed entries are skipped before considering later preferences; empty/unavailable preferences fall back to English. Explicit host language selection takes precedence, and customers can still change the selector. The standalone browser bundle exports `selectPreferredConnectionLanguage` for other host UI use.
 
 Language preference controls presentation only. It does not determine country, email provider, network software, or readiness. The catalog still contains 38 language packs, so unsupported languages require additional translations rather than an assumed worldwide-language guarantee.
+
+### Mounted DOM integration checks
+
+DOM integration tests now mount the actual component with the authenticated connection client. They exercise dropdown events, prerequisite changes, right-to-left/language switching, JSON submission, assessment callback deduplication, generic failure display, hostile option text, disposal, aborted transport, and removed lifecycle listeners. The tests use the ISC-licensed linkedom package as an explicitly pinned development-only dependency. Browser builds do not include it.
+
+This validates DOM wiring in a test implementation, not a real browser's rendering, accessibility, device behavior, or download/install workflow. Actual Android/iOS and desktop browser testing remains required before release.

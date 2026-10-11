@@ -70,5 +70,6 @@ jobs:
           test/connection-form-lifecycle.test.ts
           test/connection-coordinator-factory.test.ts
           test/connection-browser-bundle.test.ts
+          test/connection-form-view.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
