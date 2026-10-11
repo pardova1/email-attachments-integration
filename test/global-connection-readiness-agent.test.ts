@@ -77,3 +77,23 @@ test("failed evidence-source guards invalidate readiness without leaking excepti
  const result=agent.assess(environment,now);assert.equal(result.status,"unverified");assert.deepEqual(result.requiredChecks,[...REQUIRED_CONNECTION_CHECKS]);
  assert.deepEqual(result.reasons,["EVIDENCE_SOURCE_INVALIDATED"]);assert.equal(JSON.stringify(result).includes("PRIVATE_ADAPTER_DETAIL"),false);
 });
+test("all six connection fields share trimmed identity without collapsing exact software case",()=>{
+ const padded=Object.fromEntries(Object.entries(environment).map(([key,value])=>[key,` ${value} `])) as unknown as ConnectionEnvironment;
+ const agent=new GlobalConnectionReadinessAgent(),input=evidence();input.environment=padded;agent.record(input,now);
+ assert.deepEqual(agent.assess(environment,now).environment,environment);assert.equal(agent.assess(padded,now).status,"verified");
+ assert.equal(agent.assess({...environment,client:environment.client.toUpperCase()},now).status,"unverified");
+});
+test("malformed or unbounded environment metadata is rejected before evidence can be stored",()=>{
+ const agent=new GlobalConnectionReadinessAgent();
+ for(const field of ["country","network","provider","client","platform","softwareVersion"] as const){
+  for(const value of [undefined,null,123," ","x".repeat(257)," ".repeat(256)+"x","mail\nclient","mail\u007fclient"]){
+   const invalid={...environment,[field]:value} as unknown as ConnectionEnvironment;const input=evidence();input.environment=invalid;
+   assert.throws(()=>agent.record(input,now),/CONNECTION_ENVIRONMENT_REQUIRED/);assert.throws(()=>agent.assess(invalid,now),/CONNECTION_ENVIRONMENT_REQUIRED/);
+  }
+ }
+ assert.throws(()=>agent.assess(null as unknown as ConnectionEnvironment,now),/CONNECTION_ENVIRONMENT_REQUIRED/);assert.equal(agent.assess(environment,now).status,"unverified");
+});
+test("unrelated metadata cannot alter the six-field connection identity",()=>{
+ const agent=new GlobalConnectionReadinessAgent(),input=evidence();input.environment={...environment,unrelated:""} as ConnectionEnvironment;agent.record(input,now);
+ assert.deepEqual(agent.assess(environment,now).environment,environment);assert.equal(agent.assess(environment,now).status,"verified");
+});
