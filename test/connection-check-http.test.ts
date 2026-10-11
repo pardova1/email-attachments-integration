@@ -56,6 +56,13 @@ test("timed-out requests abort adapters and return no private errors",async()=>{
   const response=await post(`${url}/check`,{});assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:"CONNECTION_CHECK_UNAVAILABLE"});assert.equal(signal?.aborted,true);
  });
 });
+test("request deadline cancels the sender authentication transport before discovery",async()=>{
+ const {SupabaseSenderAuthenticator}=await import("../src/security/supabase-sender-authenticator.js");let received:AbortSignal|null|undefined,discoveryCalls=0;
+ const auth=new SupabaseSenderAuthenticator("https://example.supabase.co","publishable",async(_url,init)=>{received=init?.signal;return new Promise(()=>{});});
+ await withServer({authenticator:auth,timeoutMs:100,async coordinatorFor(){discoveryCalls++;throw new Error("UNEXPECTED");}},async url=>{
+  const response=await post(`${url}/check`,{});assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:"CONNECTION_CHECK_UNAVAILABLE"});assert.equal(received?.aborted,true);assert.equal(discoveryCalls,0);
+ });
+});
 test("software hints are forwarded separately from authenticated identity",async()=>{
  await withServer({authenticator,allowedOrigins:["https://app.example"],async coordinatorFor(customer,context){assert.equal(customer.userId,"sender-a");assert.deepEqual(context.softwareHints,{client:"browser",platform:"android",softwareVersion:"1.0"});return new AutomaticConnectionCoordinator({async discover(){return {environment:{...known,country:"KW"},observedAt:new Date().toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),undefined,10_000,undefined,customer.userId);}},async url=>{
   const response=await post(`${url}/check`,{software:{client:"browser",platform:"android",softwareVersion:"1.0"}},"sender-a",{origin:"https://app.example","x-forwarded-for":"private-spoofed-address"});assert.equal(response.status,200);assert.equal((await response.json()).validation.assessment.status,"not-ready");
