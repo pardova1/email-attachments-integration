@@ -68,3 +68,31 @@ test("cancellation stops automatic discovery without publishing evidence",async(
  await started;controller.abort();await assert.rejects(running,{name:"AbortError"});
  assert.equal(readiness.assess(observation().environment,now).status,"unverified");
 });
+test("malformed discovery details stay internal even when dropdown choices are configured",async()=>{
+ const {CustomerConnectionFallback,CONNECTION_FIELDS}=await import("../src/email/customer-connection-fallback.js");
+ const fallback=new CustomerConnectionFallback(Object.fromEntries(CONNECTION_FIELDS.map(field=>[field,[{id:field,label:field,value:observation().environment[field]}]])),()=>now);
+ for(const field of CONNECTION_FIELDS){
+  for(const value of [null,123,"*","bad\nvalue","x".repeat(257),...(field==="country"?["Norway"]:[])]){
+   const input=observation();Object.assign(input.environment,{[field]:value});let calls=0;
+   const coordinator=new AutomaticConnectionCoordinator({async discover(){return input;}},{async toolsFor(){calls++;return tools();}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
+   const result=await coordinator.check();assert.equal(result.status,"pending-internal-retry");assert.equal(calls,0);assert.equal("form" in result,false);
+  }
+ }
+});
+test("valid absent and blank discovery details still offer only the missing dropdown",async()=>{
+ const {CustomerConnectionFallback}=await import("../src/email/customer-connection-fallback.js");
+ const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"observed-provider",requires:{country:"KW"}}]},()=>now);
+ for(const provider of [undefined,"","   "]){
+  const input=observation();Object.assign(input.environment,{provider,country:" kw ",client:" observed-client "});
+  const coordinator=new AutomaticConnectionCoordinator({async discover(){return input;}},{async toolsFor(){throw new Error("MUST_NOT_PROBE");}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
+  const result=await coordinator.check();if(result.status!=="customer-input-required")throw new Error("EXPECTED_MISSING_PROVIDER_FORM");assert.deepEqual(result.form.fields.map(field=>field.key),["provider"]);assert.equal(result.form.fields[0].options.length,1);
+ }
+});
+test("malformed discovery envelopes cannot generate forms or select adapters",async()=>{
+ const {CustomerConnectionFallback}=await import("../src/email/customer-connection-fallback.js");
+ const fallback=new CustomerConnectionFallback({country:[{id:"kw",label:"Kuwait",value:"KW"}]},()=>now);
+ for(const input of [null,{...observation(),environment:[]},{...observation(),environment:null},{...observation(),sourceReference:123},{...observation(),observedAt:123},{...observation(),retryFields:["invented"]}]){
+  let calls=0;const coordinator=new AutomaticConnectionCoordinator({async discover(){return input as unknown as AutomaticConnectionDiscovery;}},{async toolsFor(){calls++;return tools();}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
+  assert.equal((await coordinator.check()).status,"pending-internal-retry");assert.equal(calls,0);
+ }
+});

@@ -68,10 +68,21 @@ export class AutomaticConnectionCoordinator {
 
   private async discover(signal?:AbortSignal){
     const discovered=await this.internalStep(probeSignal=>this.discovery.discover(probeSignal),signal);
+    signal?.throwIfAborted();
+    if(!discovered||typeof discovered!=="object"||typeof discovered.observedAt!=="string"||typeof discovered.sourceReference!=="string"||!discovered.sourceReference.trim()||!discovered.environment||typeof discovered.environment!=="object"||Array.isArray(discovered.environment))throw new Error("INVALID_AUTOMATIC_DISCOVERY");
     const observed=Date.parse(discovered.observedAt),now=this.clock();
-    if(!Number.isFinite(observed)||!Number.isFinite(now.getTime())||observed>now.getTime()||now.getTime()-observed>5*60*1000||!discovered.sourceReference.trim())throw new Error("INVALID_AUTOMATIC_DISCOVERY");
+    if(!Number.isFinite(observed)||!Number.isFinite(now.getTime())||observed>now.getTime()||now.getTime()-observed>5*60*1000)throw new Error("INVALID_AUTOMATIC_DISCOVERY");
     if(discovered.retryFields!==undefined&&(!Array.isArray(discovered.retryFields)||discovered.retryFields.some(field=>!CONNECTION_FIELDS.includes(field))))throw new Error("INVALID_AUTOMATIC_DISCOVERY");
-    return discovered;
+    const environment:Partial<ConnectionEnvironment>={};
+    for(const field of CONNECTION_FIELDS){
+      const value=discovered.environment[field];
+      if(value===undefined)continue;
+      if(typeof value!=="string"||value.length>256||/[\x00-\x1f\x7f*]/.test(value))throw new Error("INVALID_AUTOMATIC_DISCOVERY");
+      if(!value.trim())continue;
+      if(field==="country"&&!/^[A-Z]{2}$/i.test(value.trim()))throw new Error("INVALID_AUTOMATIC_DISCOVERY");
+      environment[field]=field==="country"?value.trim().toUpperCase():value.trim();
+    }
+    return {environment,observedAt:discovered.observedAt,sourceReference:discovered.sourceReference.trim(),...(discovered.retryFields===undefined?{}:{retryFields:[...discovered.retryFields]})};
   }
 
   private assessDiscovery(discovered:AutomaticConnectionDiscovery,signal?:AbortSignal){
