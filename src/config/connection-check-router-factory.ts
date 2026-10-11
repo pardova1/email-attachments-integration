@@ -5,8 +5,8 @@ export interface ConfiguredConnectionCheckRouterOptions extends Omit<ConnectionC
  observations?:ObservedConnectionCoordinatorOptions;
 }
 
-// One mount-time composition retains the shared fallback store and readiness
-// agent while the coordinator factory creates fresh discovery for each request.
+// One mount-time composition retains the shared fallback store. Coordinators
+// get fresh discovery and independent readiness evidence for each request.
 // Omitted adapters keep authenticated requests unavailable, never ready.
 export function createConfiguredConnectionCheckRouter(options:ConfiguredConnectionCheckRouterOptions){
  const {observations,...http}=options;

@@ -39,3 +39,18 @@ test("invalid configuration scope and discovery are rejected before use",async()
  await assert.rejects(factory({userId:""},context("test"),signal),/CONNECTION_CUSTOMER_SCOPE_REQUIRED/);
  await assert.rejects(factory({userId:"sender"},context("test"),signal),/CONNECTION_DISCOVERY_NOT_CONFIGURED/);
 });
+test("overlapping requests for the same environment keep independent evidence and completion order",async()=>{
+ const {REQUIRED_CONNECTION_CHECKS}=await import("../src/email/global-connection-readiness-agent.js");
+ for(const sameCustomer of [false,true])for(const firstPassed of [false,true]){
+  let current=now,selections=0,entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;});
+  const factory=createConnectionCoordinatorFactory({fallback:fallback(),clock:()=>current,async discoveryFor(){return {async discover(){return {environment:{...known,country:"NO"},observedAt:current.toISOString(),sourceReference:"synthetic-observation"};}};},catalog:{async toolsFor(){
+   const first=++selections===1,passed=first?firstPassed:!firstPassed;
+   return Object.fromEntries(REQUIRED_CONNECTION_CHECKS.map(check=>[check,{id:check,async run(){if(first&&check==="application-installation"){entered();await gate;}return {outcome:passed?"passed" as const:"failed" as const,testReference:first?"first-request":"second-request",...(check==="recipient-download"?{recipientNeedsInstallation:false}:{})};}}]));
+  }}});
+  const signal=new AbortController().signal,first=await factory({userId:"sender-a"},context("first"),signal),second=await factory({userId:sameCustomer?"sender-a":"sender-b"},context("second"),signal);
+  const running=first.check();await started;current=new Date(now.getTime()+1);const later=await second.check();release();const earlier=await running;
+  assert.equal(earlier.status,"assessed");assert.equal(later.status,"assessed");if(earlier.status!=="assessed"||later.status!=="assessed")throw new Error("INDEPENDENT_ASSESSMENTS_REQUIRED");
+  assert.equal(earlier.validation.assessment.status,firstPassed?"verified":"not-ready");assert.equal(later.validation.assessment.status,firstPassed?"not-ready":"verified");assert.equal(earlier.validation.assessment.checkedAt,now.toISOString());assert.equal(later.validation.assessment.checkedAt,current.toISOString());
+ }
+});
