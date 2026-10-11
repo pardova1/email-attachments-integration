@@ -166,7 +166,7 @@ test("every built-in language renders complete translated connection fields",asy
   assert.ok(html.includes(`<button type="submit">${translation.submit}</button>`),tag);
   assert.ok(html.includes(`name="language" value="${tag}"`),tag);
  }
- assert.equal(Object.keys(CONNECTION_TRANSLATIONS).length,38);
+ assert.equal(Object.keys(CONNECTION_TRANSLATIONS).length,42);
 });
 test("new regional preferences select translated base languages with correct text direction",async()=>{
  const {selectConnectionLanguage}=await import("../src/email/connection-languages.js");
@@ -281,4 +281,14 @@ test("preferred language matching supports extensible catalogs without changing 
  const store=new CustomerConnectionFallback(choices,()=>now),form=store.prepare("sender-1",known,["country"])!;
  renderConnectionFallback(form,"/connection",selectPreferredConnectionLanguage(["fa-IR"]));
  assert.equal(store.resolve("sender-1",form.id,{country:"norway"}).country,"NO");
+});
+
+
+test("additional African and Asian regional preferences render complete connection packs",async()=>{
+ const {selectConnectionLanguage,connectionDifficultyNotice,CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ const form=new CustomerConnectionFallback(choices,()=>now).prepare("sender-1",known,["country"])!;
+ for(const [regional,tag] of [["af-ZA","af"],["ms-MY","ms"],["th-TH","th"],["ta-IN","ta"],["ta-LK","ta"]]){
+  assert.equal(selectConnectionLanguage(regional),tag);const html=renderConnectionFallback(form,"/connection",regional);assert.ok(html.includes(`lang="${tag}" dir="ltr"`));assert.ok(html.includes(CONNECTION_TRANSLATIONS[tag].title));assert.notEqual(connectionDifficultyNotice(regional),connectionDifficultyNotice("en"));
+ }
+ assert.equal(form.fields[0].options[0].value,"NO");
 });
