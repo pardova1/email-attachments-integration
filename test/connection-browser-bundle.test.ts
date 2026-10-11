@@ -14,7 +14,7 @@ test("standalone browser bundle imports without Node or DOM globals and performs
   assert.equal(/(?:from\s*["']node:|require\(["']node:)/.test(source),false);
   assert.equal(source.includes("SUPABASE_SECRET_KEY"),false);
   const browser=await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
-  assert.equal(typeof browser.mountConnectionAssistance,"function");assert.equal(typeof browser.mountSessionConnectionAssistance,"function");assert.equal(Object.keys(browser.CONNECTION_TRANSLATIONS).length,38);assert.equal(browser.selectConnectionLanguage("fa-IR"),"fa");assert.equal(browser.selectPreferredConnectionLanguage(["is-IS","ar-KW"]),"ar");
+  assert.equal(typeof browser.mountConnectionAssistance,"function");assert.equal(typeof browser.mountSessionConnectionAssistance,"function");assert.equal(Object.keys(browser.CONNECTION_TRANSLATIONS).length,42);assert.equal(browser.selectConnectionLanguage("fa-IR"),"fa");assert.equal(browser.selectPreferredConnectionLanguage(["is-IS","ar-KW"]),"ar");
   assert.throws(()=>new browser.ConnectionCheckClient("http://test.example/v1/connection",async()=>"test-token"),/INVALID_CONNECTION_CLIENT_CONFIGURATION/);
   let calls=0;const client=new browser.ConnectionCheckClient("https://test.example/v1/connection",async()=>"test-token",async(url:string,init:RequestInit)=>{
    calls++;assert.equal(url,"https://test.example/v1/connection/check");assert.equal((init.headers as Record<string,string>).authorization,"Bearer test-token");assert.equal(init.credentials,"omit");

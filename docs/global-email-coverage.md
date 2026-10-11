@@ -228,3 +228,9 @@ Deployments must supply the same reviewed catalog to the router and browser host
 When a JSON connection request omits `language`, the API selects the first supported language from its bounded `Accept-Language` preferences, ordered by quality weight and preserving header order for ties. Invalid ranges, wildcard ranges, and zero-quality preferences are skipped. Explicit JSON language choices take precedence. Responses with language metadata also set `Content-Language`; error codes remain generic. The parser limits header length and the number of inspected ranges.
 
 Language negotiation changes presentation only. Tests confirm that preferred languages do not change the offered country values or bypass authenticated connection checks. Matching server/browser catalogs and complete reviewed translations are still needed for production worldwide language coverage.
+
+### Additional African and Asian language packs
+
+Afrikaans (`af`), Malay (`ms`), Thai (`th`), and Tamil (`ta`) bring the built-in connection catalog to 42 languages. Each includes all six field labels, prompts, language/submit controls, and the generic difficulty notice. Regional preferences such as `af-ZA`, `ms-MY`, `th-TH`, `ta-IN`, and `ta-LK` select their base pack. The standalone preview and browser/API selectors include these packs.
+
+These are connection-interface translations, not a claim of full application/email localization or tested availability in any country. Native-speaker review and live compatibility testing remain pending. Multiple languages can be used within a country; customers retain their language choice independently of detected location and software.
