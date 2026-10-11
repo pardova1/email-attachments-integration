@@ -45,3 +45,8 @@ test("malformed refreshed manual or automatic details cannot reuse a form or run
   item.set(known);assert.equal((await item.coordinator.submitFallback(first.id,{provider:"mail"})).status,"assessed");assert.equal(item.selected.length,1);
  }
 });
+test("customer selections retain the refreshed automatic observation deadline",async()=>{
+ const {REQUIRED_CONNECTION_CHECKS}=await import("../src/email/global-connection-readiness-agent.js");const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"mail"}]},()=>now);
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment:known,observedAt:new Date(now.getTime()-299_000).toISOString(),sourceReference:"synthetic-old-observation"};}},{async toolsFor(){return Object.fromEntries(REQUIRED_CONNECTION_CHECKS.map(check=>[check,{id:check,async run(){return {outcome:"passed" as const,testReference:"synthetic",...(check==="recipient-download"?{recipientNeedsInstallation:false}:{})};}}]));}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
+ const first=await form(coordinator),result=await coordinator.submitFallback(first.id,{provider:"mail"});if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");assert.equal(result.validation.assessment.status,"verified");assert.equal(result.validation.assessment.expiresAt,new Date(now.getTime()+1000).toISOString());
+});

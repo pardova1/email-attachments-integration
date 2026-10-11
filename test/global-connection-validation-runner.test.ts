@@ -119,3 +119,16 @@ test("a source withdrawn during later checks cannot publish verified readiness",
  assert.equal(result.assessment.status,"unverified");assert.ok(result.assessment.reasons.includes("EVIDENCE_SOURCE_INVALIDATED"));
  active=true;assert.equal(agent.assess(environment).status,"unverified");
 });
+test("explicit evidence ceiling cannot extend default validity and rejects malformed deadlines",async()=>{
+ const start=new Date("2026-10-11T15:00:00Z");
+ for(const duration of [1000,3600_000]){
+  const result=await new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),tools(),10_000,900_000,()=>start,new Date(start.getTime()+duration).toISOString()).run(environment);
+  assert.equal(result.assessment.expiresAt,new Date(start.getTime()+Math.min(duration,900_000)).toISOString());
+ }
+ assert.throws(()=>new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),tools(),10_000,900_000,()=>start,"invalid"),/INVALID_CONNECTION_EVIDENCE_DEADLINE/);
+});
+test("ceiling expiry during probes cannot publish verified readiness",async()=>{
+ const start=new Date("2026-10-11T15:00:00Z");let current=start;const configured=tools();configured["file-integrity"].run=async()=>{current=new Date(start.getTime()+1000);return {outcome:"passed",testReference:"completed-at-expiry"};};
+ const result=await new GlobalConnectionValidationRunner(new GlobalConnectionReadinessAgent(),configured,10_000,900_000,()=>current,new Date(start.getTime()+1000).toISOString()).run(environment);
+ assert.equal(result.assessment.status,"unverified");assert.ok(result.assessment.reasons.includes("EVIDENCE_EXPIRED"));
+});

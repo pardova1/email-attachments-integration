@@ -96,3 +96,14 @@ test("malformed discovery envelopes cannot generate forms or select adapters",as
   assert.equal((await coordinator.check()).status,"pending-internal-retry");assert.equal(calls,0);
  }
 });
+test("verified readiness cannot outlive the discovery freshness deadline",async()=>{
+ const input=observation();input.observedAt=new Date(now.getTime()-299_000).toISOString();let current=now;
+ const agent=new GlobalConnectionReadinessAgent(),coordinator=new AutomaticConnectionCoordinator({async discover(){return input;}},{async toolsFor(){current=new Date(now.getTime()+500);return tools();}},agent,()=>current);
+ const result=await coordinator.check();if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");assert.equal(result.validation.assessment.status,"verified");assert.equal(result.validation.assessment.expiresAt,new Date(now.getTime()+1000).toISOString());
+ current=new Date(now.getTime()+1000);assert.equal(agent.assess(input.environment,current).status,"unverified");
+});
+test("observations expiring during tool selection cannot start probes",async()=>{
+ const input=observation();input.observedAt=new Date(now.getTime()-299_000).toISOString();let current=now,calls=0;const configured=tools();for(const tool of Object.values(configured))tool.run=async()=>{calls++;return {outcome:"passed",testReference:"must-not-run"};};
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return input;}},{async toolsFor(){current=new Date(now.getTime()+1000);return configured;}},new GlobalConnectionReadinessAgent(),()=>current);
+ assert.equal((await coordinator.check()).status,"pending-internal-retry");assert.equal(calls,0);
+});
