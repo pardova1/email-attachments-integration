@@ -69,3 +69,21 @@ test("client disconnect aborts a pending connection adapter",async()=>{
   await started;pending.destroy();await cancelled;
  });
 });
+
+
+test("HTTP language extensions preserve authenticated country choices and localized submission responses",async()=>{
+ const {CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ const translations={en:structuredClone(CONNECTION_TRANSLATIONS.en),bn:{...structuredClone(CONNECTION_TRANSLATIONS.en),language:"বাংলা",message:"সংযোগের তথ্য নির্বাচন করুন।",difficultyNotice:"পরে আবার চেষ্টা করুন।",fields:{...CONNECTION_TRANSLATIONS.en.fields,country:"দেশ"}}};
+ const fallback=new CustomerConnectionFallback({country:[{id:"no",label:"Norway",value:"NO"}]});
+ await withServer({authenticator,translations,async coordinatorFor(customer){return new AutomaticConnectionCoordinator({async discover(){return {environment:known,observedAt:new Date().toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),undefined,10_000,fallback,customer.userId);}},async url=>{
+  translations.bn.message="changed outside router";
+  const result=await (await post(`${url}/check`,{language:"bn-BD"})).json();assert.equal(result.language,"bn");assert.equal(result.form.message,"সংযোগের তথ্য নির্বাচন করুন।");assert.equal(result.form.fields[0].label,"দেশ");assert.equal(result.form.fields[0].options[0].value,"NO");assert.equal(result.form.fields[0].options[0].label,new Intl.DisplayNames(["bn"],{type:"region"}).of("NO"));assert.deepEqual(result.languageOptions.map((item:{tag:string})=>item.tag),["en","bn"]);
+  const checked=await (await post(`${url}/selections`,{language:"bn-BD",formId:result.form.id,selections:{country:"no"}})).json();assert.equal(checked.language,"bn");assert.equal(checked.validation.assessment.environment.country,"NO");assert.equal(checked.retryRequired,true);
+  const unsupported=await (await post(`${url}/check`,{language:"is-IS"})).json();assert.equal(unsupported.language,"en");
+ });
+});
+test("HTTP configuration rejects incomplete added languages before requests",async()=>{
+ const {CONNECTION_TRANSLATIONS}=await import("../src/email/connection-languages.js");
+ assert.throws(()=>createConnectionCheckRouter({authenticator,translations:{bn:{...CONNECTION_TRANSLATIONS.en,language:"বাংলা"}}}),/CONNECTION_DIFFICULTY_TRANSLATION_REQUIRED/);
+ assert.throws(()=>createConnectionCheckRouter({authenticator,translations:{}}),/EMPTY_CONNECTION_LANGUAGE_CATALOG/);
+});
