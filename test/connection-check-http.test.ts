@@ -87,3 +87,20 @@ test("HTTP configuration rejects incomplete added languages before requests",asy
  assert.throws(()=>createConnectionCheckRouter({authenticator,translations:{bn:{...CONNECTION_TRANSLATIONS.en,language:"বাংলা"}}}),/CONNECTION_DIFFICULTY_TRANSLATION_REQUIRED/);
  assert.throws(()=>createConnectionCheckRouter({authenticator,translations:{}}),/EMPTY_CONNECTION_LANGUAGE_CATALOG/);
 });
+
+
+test("HTTP language preferences respect quality weights and explicit customer choices",async()=>{
+ const fallback=new CustomerConnectionFallback({country:[{id:"no",label:"Norway",value:"NO"}]});
+ await withServer({authenticator,async coordinatorFor(customer){return new AutomaticConnectionCoordinator({async discover(){return {environment:known,observedAt:new Date().toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),undefined,10_000,fallback,customer.userId);}},async url=>{
+  for(const [header,body,expected] of [["is-IS,sv-SE;q=0.5,fa-IR;q=0.9",{},"fa"],["ar-KW;q=0,sw-KE;q=0.8",{},"sw"],["ar-KW",{language:"nb-NO"},"nb"],["*;q=1,invalid_tag;q=2",{},"en"]] as const){
+   const response=await post(`${url}/check`,body,"sender-a",{"accept-language":header});const result=await response.json();assert.equal(result.language,expected);assert.equal(response.headers.get("content-language"),expected);assert.equal(result.form.fields[0].options[0].value,"NO");
+  }
+ });
+});
+test("language header parsing is bounded stable and excludes malformed or zero-quality ranges",async()=>{
+ const {connectionLanguagePreferences}=await import("../src/http/connection-language-preferences.js");
+ assert.deepEqual(connectionLanguagePreferences("sv;q=0.4,fa;q=1,ar;q=1,nb;q=0,sw;q=0.800"),["fa","ar","sw","sv"]);
+ assert.deepEqual(connectionLanguagePreferences("en;q=1.1,fr;q=-1,de;q=0.1234,fa;q=0.5;q=1,ar;q=NaN,*"),[]);
+ assert.deepEqual(connectionLanguagePreferences(undefined),[]);assert.deepEqual(connectionLanguagePreferences("a".repeat(4097)),[]);
+ assert.equal(connectionLanguagePreferences(Array(60).fill("en").join(",")).length,50);
+});

@@ -1,9 +1,10 @@
+import {connectionLanguagePreferences} from "./connection-language-preferences.js";
 import {randomUUID} from "node:crypto";
 import {Router,type RequestHandler} from "express";
 import {z} from "zod";
 import {AutomaticConnectionCoordinator} from "../email/automatic-connection-coordinator.js";
 import {CONNECTION_FIELDS,requireConnectionCustomerScope} from "../email/customer-connection-fallback.js";
-import {CONNECTION_TRANSLATIONS,selectConnectionLanguage,validateConnectionFormTranslations,type ConnectionTranslation} from "../email/connection-languages.js";
+import {CONNECTION_TRANSLATIONS,selectConnectionLanguage,selectPreferredConnectionLanguage,validateConnectionFormTranslations,type ConnectionTranslation} from "../email/connection-languages.js";
 import type {AuthenticatedSender} from "../security/supabase-sender-authenticator.js";
 
 export interface ConnectionRequestContext {
@@ -66,13 +67,13 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
      throw cause;
     }
     controller.signal.throwIfAborted();
-    const selectedLanguage=selectConnectionLanguage(input.data.language??"en",translations);
+    const selectedLanguage=input.data.language!==undefined?selectConnectionLanguage(input.data.language,translations):selectPreferredConnectionLanguage(connectionLanguagePreferences(req.header("accept-language")),translations);
     if(checked.status==="pending-internal-retry")return {httpStatus:503,body:{...checked,language:selectedLanguage}};
     if(checked.status!=="customer-input-required")return {httpStatus:200,body:{...checked,language:selectedLanguage}};
     const text=translations[selectedLanguage],countryNames=new Intl.DisplayNames([selectedLanguage],{type:"region"});
     return {httpStatus:200,body:{...checked,language:selectedLanguage,direction:text.direction,languageOptions:Object.entries(translations).map(([tag,pack])=>({tag,label:pack.language})),form:{...checked.form,message:text.message,fields:checked.form.fields.map(field=>({...field,label:text.fields[field.key],options:field.options.map(option=>({...option,label:field.key==="country"?countryNames.of(option.value)??option.label:option.label}))}))}}};
    })(),cancelled]);
-   if(!res.destroyed)res.status(result.httpStatus).json(result.body);
+   if(!res.destroyed)res.setHeader("Content-Language",result.body.language).status(result.httpStatus).json(result.body);
   }catch{
    if(!res.destroyed)res.status(controller.signal.aborted?503:status).json({error:controller.signal.aborted?"CONNECTION_CHECK_UNAVAILABLE":error});
   }finally{
