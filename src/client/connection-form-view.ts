@@ -1,18 +1,18 @@
 import type {ConnectionCheckClient,ConnectionCheckInput,ConnectionClientResult} from "./connection-check-client.js";
 import {observeConnectionFormLifecycle} from "./connection-form-lifecycle.js";
-import {ConnectionFormModel} from "./connection-form-model.js";
+import {ConnectionFormModel,type ConnectionFormRetryPolicy} from "./connection-form-model.js";
 import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice,selectPreferredConnectionLanguage,type ConnectionTranslation} from "../email/connection-languages.js";
 
 // Embed in an authenticated app. Values become text nodes, never HTML; the
 // client owns authorization and submits JSON rather than exposing tokens in forms.
-export function mountConnectionAssistance(container:HTMLElement,client:ConnectionCheckClient,options:{language?:string;translations?:Record<string,ConnectionTranslation>;software?:ConnectionCheckInput["software"];onAssessed?:(result:Extract<ConnectionClientResult,{status:"assessed"}>)=>void}={}) {
+export function mountConnectionAssistance(container:HTMLElement,client:ConnectionCheckClient,options:{retry?:ConnectionFormRetryPolicy;language?:string;translations?:Record<string,ConnectionTranslation>;software?:ConnectionCheckInput["software"];onAssessed?:(result:Extract<ConnectionClientResult,{status:"assessed"}>)=>void}={}) {
  const document=container.ownerDocument,translations=structuredClone(options.translations??CONNECTION_TRANSLATIONS);
  let language=options.language;
  if(language===undefined){
   try{const navigator=document.defaultView?.navigator;language=selectPreferredConnectionLanguage(navigator?.languages?.length?navigator.languages:navigator?.language?[navigator.language]:[],translations);}
   catch{language="en";}
  }
- const model=new ConnectionFormModel(client,language,undefined,translations);
+ const model=new ConnectionFormModel(client,language,undefined,translations,options.retry);
  let expiryTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,assessmentDelivered:string|undefined=undefined;
  const unsubscribe=model.subscribe(state=>{
   const active=document.activeElement;

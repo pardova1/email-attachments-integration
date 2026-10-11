@@ -3,6 +3,7 @@ import type {ConnectionCheckClient,ConnectionClientResult,ConnectionCheckInput,C
 import {selectConnectionLanguage,CONNECTION_TRANSLATIONS,validateConnectionFormTranslations,type ConnectionTranslation} from "../email/connection-languages.js";
 type Field=keyof ConnectionSelectionInput["selections"];
 const fields:Field[]=["country","network","provider","client","platform","softwareVersion"];
+export interface ConnectionFormRetryPolicy {maxAttempts:number;delayMs:number;}
 export interface ConnectionFormState {
  phase:"idle"|"checking"|"choosing"|"submitting"|"assessed"|"unavailable";
  language:string;
@@ -22,8 +23,11 @@ export class ConnectionFormModel {
  private disposed=false;
  private readinessWithdrawalReason?:string;
  private readonly listeners=new Set<(state:ConnectionFormState)=>void>();
+ private readonly retry:ConnectionFormRetryPolicy;
  private readonly translations:Record<string,ConnectionTranslation>;
- constructor(private readonly client:Pick<ConnectionCheckClient,"check"|"submit">,language="en",private readonly clock=()=>new Date(),translations:Record<string,ConnectionTranslation>=CONNECTION_TRANSLATIONS) {
+ constructor(private readonly client:Pick<ConnectionCheckClient,"check"|"submit">,language="en",private readonly clock=()=>new Date(),translations:Record<string,ConnectionTranslation>=CONNECTION_TRANSLATIONS,retry:ConnectionFormRetryPolicy={maxAttempts:2,delayMs:250}) {
+  if(!retry||!Number.isInteger(retry.maxAttempts)||retry.maxAttempts<1||retry.maxAttempts>3||!Number.isInteger(retry.delayMs)||retry.delayMs<0||retry.delayMs>1000)throw new Error("INVALID_CONNECTION_FORM_RETRY_POLICY");
+  this.retry={...retry};
   this.translations=structuredClone(translations);validateConnectionFormTranslations(this.translations);this.language=selectConnectionLanguage(language,this.translations);
  }
  state():ConnectionFormState {
@@ -71,13 +75,15 @@ export class ConnectionFormModel {
  optionAvailable(requires?:Partial<Record<Field,string>>){return this.available(requires);}
  async check(software?:ConnectionCheckInput["software"]){
   this.active();const token=this.begin("checking");this.result=undefined;this.selections={};this.emit();
-  try{const result=await this.client.check({language:this.language,...(software?{software}:{})},this.controller!.signal);this.finish(token,result);}
+  const input=structuredClone({language:this.language,...(software?{software}:{})});
+  try{const result=await this.retryInternal(token,signal=>this.client.check(structuredClone(input),signal));this.finish(token,result);}
   catch{if(this.current(token)){this.phase="unavailable";this.emit();}}
  }
  async submit(software?:ConnectionCheckInput["software"]){
   this.active();if(!this.state().canSubmit||this.result?.status!=="customer-input-required")throw new Error("CONNECTION_FORM_NOT_READY");
-  const formId=this.result.form.id,selections=structuredClone(this.selections),token=this.begin("submitting");this.emit();
-  try{const result=await this.client.submit({formId,selections,language:this.language,...(software?{software}:{})},this.controller!.signal);this.finish(token,result);}
+  const formId=this.result.form.id,expiresAt=Date.parse(this.result.form.expiresAt),selections=structuredClone(this.selections),token=this.begin("submitting");this.emit();
+  const input=structuredClone({formId,selections,language:this.language,...(software?{software}:{})});
+  try{const result=await this.retryInternal(token,signal=>this.client.submit(structuredClone(input),signal),()=>{const now=this.clock().getTime();return Number.isFinite(now)&&now<expiresAt;});this.finish(token,result);}
   catch{if(this.current(token)){this.phase="unavailable";this.emit();}}
  }
  invalidateConnection(){
@@ -91,6 +97,28 @@ export class ConnectionFormModel {
  }
  refresh(){this.active();this.emit();}
  dispose(){if(this.disposed)return;this.disposed=true;this.generation++;this.controller?.abort();this.listeners.clear();}
+ private async retryInternal(token:number,operation:(signal:AbortSignal)=>Promise<ConnectionClientResult>,valid=()=>true){
+  const signal=this.controller!.signal;
+  for(let attempt=1;attempt<=this.retry.maxAttempts;attempt++){
+   signal.throwIfAborted();
+   if(!this.current(token))throw new Error("CONNECTION_OPERATION_SUPERSEDED");
+   const result=await operation(signal);
+   signal.throwIfAborted();
+   if(result.status!=="pending-internal-retry"||attempt===this.retry.maxAttempts||!this.current(token)||!valid())return result;
+   await this.retryDelay(signal);
+   if(!this.current(token)||!valid())return result;
+  }
+  throw new Error("CONNECTION_RETRY_EXHAUSTED");
+ }
+ private async retryDelay(signal:AbortSignal){
+  signal.throwIfAborted();
+  await new Promise<void>((resolve,reject)=>{
+   const aborted=()=>{clearTimeout(timer);signal.removeEventListener("abort",aborted);reject(signal.reason);};
+   const timer=setTimeout(()=>{signal.removeEventListener("abort",aborted);resolve();},this.retry.delayMs);
+   signal.addEventListener("abort",aborted,{once:true});
+  });
+  signal.throwIfAborted();
+ }
  private available(requires?:Partial<Record<Field,string>>){
   const result=this.result;
   if(result?.status!=="customer-input-required")return false;
