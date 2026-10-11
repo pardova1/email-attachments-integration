@@ -62,3 +62,9 @@ test("new language packs require a complete difficulty message before mounting",
  const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token");
  assert.throws(()=>mountConnectionAssistance(container,client,{translations:{bn:{...CONNECTION_TRANSLATIONS.en,language:"বাংলা"}}}),/CONNECTION_DIFFICULTY_TRANSLATION_REQUIRED/);assert.equal(container.childNodes.length,0);
 });
+test("mounted assistance automatically rediscovers after internet returns",async()=>{
+ const {document,window}=parseHTML('<html><body><main></main></body></html>');const container=document.querySelector("main") as unknown as HTMLElement;let requests=0,tokens=0;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>{tokens++;return "token";},async()=>{requests++;return response(fallback());});
+ const mounted=mountConnectionAssistance(container,client,{language:"fa",software:{client:"native",platform:"android",softwareVersion:"1"}});
+ try{await settled(mounted.model);mounted.model.choose("client","a");window.dispatchEvent(new window.Event("offline"));assert.equal(mounted.model.state().phase,"unavailable");assert.deepEqual(mounted.model.state().selections,{});window.dispatchEvent(new window.Event("online"));window.dispatchEvent(new window.Event("online"));await new Promise(resolve=>setTimeout(resolve,300));await settled(mounted.model);assert.equal(requests,2);assert.equal(tokens,2);assert.equal(mounted.model.state().phase,"choosing");assert.equal(mounted.model.state().language,"fa");assert.deepEqual(mounted.model.state().selections,{});}finally{mounted.dispose();}
+});

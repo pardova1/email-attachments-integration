@@ -46,7 +46,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
   }
   if(focusName&&/^[a-zA-Z-]+$/.test(focusName))container.querySelector<HTMLElement>(`[name="${focusName}"]`)?.focus();
  });
- const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,()=>model.refresh(),()=>model.invalidateConnection());
+ const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,()=>model.refresh(),()=>model.invalidateConnection(),()=>{void model.check(options.software);});
  void model.check(options.software);
  return {model,dispose(){if(disposed)return;disposed=true;stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
 }
