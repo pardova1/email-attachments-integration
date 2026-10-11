@@ -6,3 +6,5 @@ export {CONNECTION_TRANSLATIONS,selectConnectionLanguage,selectPreferredConnecti
 export {mountSessionConnectionAssistance} from "./connection-session-view.js";
 export type {ConnectionApplicationSession,SessionConnectionOptions} from "./connection-session-view.js";
 export type {ConnectionTranslation} from "../email/connection-languages.js";
+export {BrowserConnectionCheckClient,collectBrowserConnectionHints} from "./browser-connection-client.js";
+export type {BrowserConnectionNavigator} from "./browser-connection-client.js";
