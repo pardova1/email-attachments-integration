@@ -25,3 +25,15 @@ test("automatic hints reach authenticated JSON while explicit integration metada
  await client.check();await client.check({software:{client:"native-app",platform:"android",softwareVersion:"1.2.3"}});
  assert.deepEqual(sent,[{software:{platform:"windows",client:"Microsoft Edge",softwareVersion:"155.0.8000.1"}},{software:{client:"native-app",platform:"android",softwareVersion:"1.2.3"}}]);assert.equal(metadataCalls,1);
 });
+
+test("fallback submissions collect current software hints and respect explicit native metadata",async()=>{
+ let version="155.0.8000.1",calls=0;const sent:any[]=[];
+ const client=new BrowserConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async(url,init)=>{assert.equal(url,"https://app.example/v1/connection/selections");sent.push(JSON.parse(init!.body as string));return new Response(JSON.stringify({status:"pending-internal-retry",retryRequired:true,language:"en",reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"}),{status:503,headers:{"content-type":"application/json"}});},{userAgentData:{platform:"Android",async getHighEntropyValues(){calls++;return {fullVersionList:[{brand:"Google Chrome",version}]};}}});
+ const input={formId:"00000000-0000-4000-8000-000000000001",selections:{provider:"mail"}};
+ await client.submit(input);version="156.0.9000.1";await client.submit(input);await client.submit({...input,software:{client:"native",platform:"android",softwareVersion:"2"}});
+ assert.equal(sent[0].software.softwareVersion,"155.0.8000.1");assert.equal(sent[1].software.softwareVersion,"156.0.9000.1");assert.deepEqual(sent[2].software,{client:"native",platform:"android",softwareVersion:"2"});assert.equal(calls,2);
+});
+test("cancelling hint collection during submission sends no request",async()=>{
+ let calls=0;const client=new BrowserConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async()=>{calls++;throw new Error("UNEXPECTED");},{userAgentData:{async getHighEntropyValues(){return new Promise(()=>{});}}});
+ const controller=new AbortController(),pending=client.submit({formId:"00000000-0000-4000-8000-000000000001",selections:{provider:"mail"}},controller.signal);controller.abort();await assert.rejects(pending,{name:"AbortError"});assert.equal(calls,0);
+});

@@ -33,7 +33,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
     for(const choice of field.options){const names=field.key==="country"?new Intl.DisplayNames([state.language],{type:"region"}):undefined;const option=make("option",names?.of(choice.value)??choice.label);option.value=choice.id;option.disabled=!model.optionAvailable(choice.requires);option.hidden=option.disabled;option.selected=state.selections[field.key]===choice.id;select.append(option);}
     select.addEventListener("change",()=>model.choose(field.key,select.value));form.append(label);
    }
-   const submit=make("button",text.submit);submit.type="submit";submit.disabled=!state.canSubmit;form.append(submit);form.addEventListener("submit",event=>{event.preventDefault();if(model.state().canSubmit)void model.submit();else void model.check(options.software);});container.append(form,make("p",text.note));
+   const submit=make("button",text.submit);submit.type="submit";submit.disabled=!state.canSubmit;form.append(submit);form.addEventListener("submit",event=>{event.preventDefault();if(model.state().canSubmit)void model.submit(options.software);else void model.check(options.software);});container.append(form,make("p",text.note));
    expiryTimer=setTimeout(()=>{if(!disposed)model.refresh();},Math.max(1,Math.min(Date.parse(result.form.expiresAt)-Date.now(),2_147_483_647)));
   }else{
    if(state.phase==="unavailable"||state.phase==="assessed"&&result?.retryRequired){const notice=make("p",connectionDifficultyNotice(state.language,translations));notice.setAttribute("role","alert");container.append(notice);}

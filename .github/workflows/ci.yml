@@ -75,5 +75,6 @@ jobs:
           test/browser-connection-client.test.ts
           test/observed-connection-coordinator-factory.test.ts
           test/configured-connection-http.test.ts
+          test/fallback-connection-refresh.test.ts
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high

@@ -32,7 +32,7 @@ test("configured HTTP discovery requires every exact-profile probe before return
 test("configured HTTP fallback preserves discoveries across requests and rejects another customer",async()=>{
  const configured=configuration();configured.observations.provider=async()=>observed({});await withServer({authenticator,observations:configured.observations},async url=>{
   const first=await (await post(`${url}/check`,{software,language:"fa-IR"})).json();assert.equal(first.language,"fa");assert.equal(first.direction,"rtl");assert.deepEqual(first.form.fields.map((field:{key:string})=>field.key),["provider"]);
-  const body={formId:first.form.id,selections:{provider:"gmail"},language:"sw-KE"};assert.equal((await post(`${url}/selections`,body,"sender-b")).status,400);assert.equal(configured.runs.length,0);
+  const body={software,formId:first.form.id,selections:{provider:"gmail"},language:"sw-KE"};assert.equal((await post(`${url}/selections`,body,"sender-b")).status,400);assert.equal(configured.runs.length,0);
   const accepted=await (await post(`${url}/selections`,body)).json();assert.equal(accepted.language,"sw");assert.equal(accepted.validation.assessment.status,"verified");assert.deepEqual(accepted.validation.assessment.environment,environment);assert.deepEqual(configured.runs,[...REQUIRED_CONNECTION_CHECKS]);
  });
 });
@@ -43,4 +43,13 @@ test("unconfigured server composition and rejected authentication never claim re
 test("HTTP deadline cancels composed observation sources without running probes",async()=>{
  const configured=configuration();let sourceSignal:AbortSignal|undefined;configured.observations.network=async(_customer,_context,signal?:AbortSignal)=>{sourceSignal=signal;return new Promise(()=>{});};
  await withServer({authenticator,timeoutMs:100,observations:configured.observations},async url=>{const response=await post(`${url}/check`,{software});assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:"CONNECTION_CHECK_UNAVAILABLE"});assert.equal(sourceSignal?.aborted,true);assert.equal(configured.runs.length,0);});
+});
+
+test("HTTP selection refresh cannot validate a saved software version after a change",async()=>{
+ const configured=configuration();configured.observations.provider=async()=>observed({});
+ await withServer({authenticator,observations:configured.observations},async url=>{
+  const first=await (await post(`${url}/check`,{software})).json(),current={...software,softwareVersion:"156.0.9000.1"};
+  const renewed=await (await post(`${url}/selections`,{formId:first.form.id,selections:{provider:"gmail"},software:current})).json();assert.equal(renewed.status,"customer-input-required");assert.notEqual(renewed.form.id,first.form.id);assert.deepEqual(renewed.form.fields.map((field:{key:string})=>field.key),["provider"]);assert.equal(configured.runs.length,0);
+  const checked=await (await post(`${url}/selections`,{formId:renewed.form.id,selections:{provider:"gmail"},software:current})).json();assert.equal(checked.validation.assessment.status,"not-ready");assert.equal(checked.validation.assessment.environment.softwareVersion,current.softwareVersion);assert.equal(configured.runs.length,0);
+ });
 });
