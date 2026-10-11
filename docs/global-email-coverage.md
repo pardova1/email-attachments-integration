@@ -204,3 +204,9 @@ Language preference controls presentation only. It does not determine country, e
 DOM integration tests now mount the actual component with the authenticated connection client. They exercise dropdown events, prerequisite changes, right-to-left/language switching, JSON submission, assessment callback deduplication, generic failure display, hostile option text, disposal, aborted transport, and removed lifecycle listeners. The tests use the ISC-licensed linkedom package as an explicitly pinned development-only dependency. Browser builds do not include it.
 
 This validates DOM wiring in a test implementation, not a real browser's rendering, accessibility, device behavior, or download/install workflow. Actual Android/iOS and desktop browser testing remains required before release.
+
+### Application session integration
+
+`mountSessionConnectionAssistance` connects the browser form to a host-supplied session adapter (`currentCustomer`, `accessToken`, `subscribe`). Signing out or switching customers cancels pending work and clears the previous result and dropdown choices. Signing in as another customer starts fresh automatic checks; token refresh for the same customer preserves the form. Tokens resolving across an account change are discarded before transport. The scope remains local and is never sent as a submitted identity.
+
+Hosts can use `isReady()` and readiness-change callbacks to update their send controls. Readiness also becomes false on disposal, expiry, or connectivity interruption. Server-side send authorization must still enforce current identity and compatibility. The wrapper introduces no login UI or token persistence; production must supply its real authenticated session. Mounted DOM tests verify sign-out/account switching, token races, stale replies, and cleanup. The browser bundle exports this wrapper.

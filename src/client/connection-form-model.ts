@@ -68,6 +68,9 @@ export class ConnectionFormModel {
   else {this.result=undefined;this.phase="unavailable";}
   this.emit();
  }
+ resetAuthentication(){
+  this.active();this.generation++;this.controller?.abort();this.result=undefined;this.selections={};this.readinessWithdrawalReason=undefined;this.phase="unavailable";this.emit();
+ }
  refresh(){this.active();this.emit();}
  dispose(){if(this.disposed)return;this.disposed=true;this.generation++;this.controller?.abort();this.listeners.clear();}
  private available(requires?:Partial<Record<Field,string>>){
