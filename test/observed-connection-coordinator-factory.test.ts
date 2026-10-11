@@ -17,10 +17,10 @@ test("missing provider metadata asks only for provider and retains automatically
  const first=await factory({userId:"sender-a"},context,new AbortController().signal),result=await first.check();if(result.status!=="customer-input-required")throw new Error("EXPECTED_FORM");assert.deepEqual(result.form.fields.map(field=>field.key),["provider"]);
  const second=await factory({userId:"sender-a"},context,new AbortController().signal);const checked=await second.submitFallback(result.form.id,{provider:"gmail"});assert.equal(checked.retryRequired,true);assert.deepEqual(selected,{country:"NO",network:"test-network",provider:"gmail",...context.softwareHints});
 });
-test("hanging network observation preserves independent account and software details",async()=>{
+test("hanging network observation stays internal instead of requesting network dropdowns",async()=>{
  const fallback=new CustomerConnectionFallback({country:[{id:"no",label:"Norway",value:"NO"}],network:[{id:"network",label:"Network",value:"network"}]},()=>now);
  const factory=createObservedConnectionCoordinatorFactory({clock:()=>now,sourceTimeoutMs:10,fallback,catalog:{async toolsFor(){return {};}},async network(){return new Promise(()=>{});},async provider(){return observation({provider:"gmail"},"account:test");}});
- const coordinator=await factory({userId:"sender-a"},context,new AbortController().signal);const result=await coordinator.check();if(result.status!=="customer-input-required")throw new Error("EXPECTED_FORM");assert.deepEqual(result.form.fields.map(field=>field.key),["country","network"]);
+ const coordinator=await factory({userId:"sender-a"},context,new AbortController().signal);const result=await coordinator.check();assert.equal(result.status,"pending-internal-retry");
 });
 test("invalid source policies fail at setup",()=>{
  const options={fallback:new CustomerConnectionFallback({}),catalog:{async toolsFor(){return {};}},async network(){return observation({},"test");},async provider(){return observation({},"test");}};

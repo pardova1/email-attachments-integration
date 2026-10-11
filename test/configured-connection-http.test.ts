@@ -53,3 +53,11 @@ test("HTTP selection refresh cannot validate a saved software version after a ch
   const checked=await (await post(`${url}/selections`,{formId:renewed.form.id,selections:{provider:"gmail"},software:current})).json();assert.equal(checked.validation.assessment.status,"not-ready");assert.equal(checked.validation.assessment.environment.softwareVersion,current.softwareVersion);assert.equal(configured.runs.length,0);
  });
 });
+
+test("HTTP source failure stays private and recovery to unknown details offers only missing dropdowns",async()=>{
+ const configured=configuration();let failed=true;configured.observations.provider=async()=>{if(failed)throw new Error("PRIVATE_ACCOUNT_SOURCE_ERROR");return observed({});};
+ await withServer({authenticator,observations:configured.observations},async url=>{
+  const response=await post(`${url}/check`,{software,language:"ar-KW"}),result=await response.json();assert.equal(response.status,503);assert.equal(result.status,"pending-internal-retry");assert.equal(result.language,"ar");assert.equal(result.form,undefined);assert.equal(result.retryFields,undefined);assert.equal(JSON.stringify(result).includes("PRIVATE_ACCOUNT_SOURCE_ERROR"),false);assert.equal(configured.runs.length,0);
+  failed=false;const recovered=await post(`${url}/check`,{software,language:"ar-KW"}),form=await recovered.json();assert.equal(recovered.status,200);assert.equal(form.status,"customer-input-required");assert.deepEqual(form.form.fields.map((field:{key:string})=>field.key),["provider"]);
+ });
+});

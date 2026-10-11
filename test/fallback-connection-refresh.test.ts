@@ -31,3 +31,10 @@ test("refresh failure stays an internal retry and cannot validate stale form con
 test("country changes cannot reuse choices filtered against the old country",async()=>{
  const item=setup(),first=await form(item.coordinator);item.set({...known,country:"SE"});const result=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(result.status,"pending-internal-retry");assert.equal(item.selected.length,0);
 });
+
+test("source failures during selection refresh remain internal even if every field is present",async()=>{
+ const firstObservation={environment:known,observedAt:now.toISOString(),sourceReference:"synthetic-original"};let retry=false,calls=0;
+ const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"mail"}]},()=>now);
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){return {...firstObservation,...(retry?{retryFields:["network" as const]}:{})};}},{async toolsFor(){calls++;return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
+ const first=await form(coordinator);retry=true;assert.equal((await coordinator.submitFallback(first.id,{provider:"mail"})).status,"pending-internal-retry");assert.equal(calls,0);
+});
