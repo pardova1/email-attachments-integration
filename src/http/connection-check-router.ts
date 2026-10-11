@@ -23,7 +23,7 @@ export interface ConnectionCheckRouterOptions {
 const hint=z.string().trim().min(1).max(256).refine(value=>!/[\x00-\x1f\x7f*]/.test(value));
 const language=z.string().min(1).max(100).optional();
 const checkSchema=z.object({language,software:z.object({client:hint.optional(),platform:hint.optional(),softwareVersion:hint.optional()}).strict().optional()}).strict();
-const selectionSchema=z.object({formId:z.uuid(),language,selections:z.object(Object.fromEntries(CONNECTION_FIELDS.map(field=>[field,z.string().min(1).max(256).optional()])) as Record<typeof CONNECTION_FIELDS[number],z.ZodOptional<z.ZodString>>).strict()}).strict();
+const selectionSchema=z.object({formId:z.uuid(),language,software:checkSchema.shape.software,selections:z.object(Object.fromEntries(CONNECTION_FIELDS.map(field=>[field,z.string().min(1).max(256).optional()])) as Record<typeof CONNECTION_FIELDS[number],z.ZodOptional<z.ZodString>>).strict()}).strict();
 
 // Bearer-authenticated JSON API. Identity never comes from body/query/cookies.
 export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions) {

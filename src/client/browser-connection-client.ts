@@ -1,4 +1,4 @@
-import {ConnectionCheckClient,type ConnectionCheckInput} from "./connection-check-client.js";
+import {ConnectionCheckClient,type ConnectionCheckInput,type ConnectionSelectionInput} from "./connection-check-client.js";
 export interface BrowserConnectionNavigator {
  userAgentData?:{platform?:string;brands?:{brand:string;version:string}[];getHighEntropyValues?:(hints:string[])=>Promise<unknown>};
 }
@@ -40,5 +40,10 @@ export class BrowserConnectionCheckClient extends ConnectionCheckClient {
   if(input.software!==undefined)return super.check(input,signal);
   const software=await collectBrowserConnectionHints(this.browserNavigator,signal);
   return super.check({...input,...(software?{software}:{})},signal);
+ }
+ override async submit(input:ConnectionSelectionInput,signal?:AbortSignal){
+  if(input.software!==undefined)return super.submit(input,signal);
+  const software=await collectBrowserConnectionHints(this.browserNavigator,signal);
+  return super.submit({...input,...(software?{software}:{})},signal);
  }
 }

@@ -39,28 +39,44 @@ export class AutomaticConnectionCoordinator {
   // Automatic discovery remains the first step; no manual input is required here.
   async check(signal?: AbortSignal) {
     signal?.throwIfAborted();
-    let environment:ConnectionEnvironment,reference:string;
+    let discovered:AutomaticConnectionDiscovery;
     try {
-      const discovered=await this.internalStep(probeSignal=>this.discovery.discover(probeSignal),signal);
-      const observed=Date.parse(discovered.observedAt),now=this.clock();
-      if(!Number.isFinite(observed)||!Number.isFinite(now.getTime())||observed>now.getTime()||now.getTime()-observed>5*60*1000||!discovered.sourceReference.trim())throw new Error("INVALID_AUTOMATIC_DISCOVERY");
-      const missing=CONNECTION_FIELDS.filter(key=>typeof discovered.environment[key]!=="string"||!discovered.environment[key]?.trim()||key==="country"&&!/^[A-Z]{2}$/i.test(discovered.environment[key]!.trim()));
-      if(missing.length)return this.offerFallback(discovered.environment,missing);
-      environment=this.readiness.assess(discovered.environment as ConnectionEnvironment,now).environment;
-      reference=discovered.sourceReference;
+      discovered=await this.discover(signal);
     } catch {
       signal?.throwIfAborted();
       return this.offerFallback({},[...CONNECTION_FIELDS]);
     }
-    return this.validate(environment,reference,"automatic",signal);
+    return this.assessDiscovery(discovered,signal);
   }
 
   async submitFallback(formId:string,selections:Partial<Record<ConnectionField,string>>,signal?:AbortSignal) {
     signal?.throwIfAborted();
     if(!this.fallback)throw new Error("CONNECTION_FALLBACK_NOT_CONFIGURED");
     const selected=this.fallback.resolve(this.customerScope!,formId,selections);
+    let discovered:AutomaticConnectionDiscovery;
+    try{discovered=await this.discover(signal);}catch{
+      signal?.throwIfAborted();
+      return {status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};
+    }
+    if(!this.fallback.matchesCurrent(this.customerScope!,formId,selections,discovered.environment))return this.assessDiscovery(discovered,signal);
     const environment=this.readiness.assess(selected,this.clock()).environment;
     return this.validate(environment,`customer-selection:${formId}`,"customer-selection",signal);
+  }
+
+  private async discover(signal?:AbortSignal){
+    const discovered=await this.internalStep(probeSignal=>this.discovery.discover(probeSignal),signal);
+    const observed=Date.parse(discovered.observedAt),now=this.clock();
+    if(!Number.isFinite(observed)||!Number.isFinite(now.getTime())||observed>now.getTime()||now.getTime()-observed>5*60*1000||!discovered.sourceReference.trim())throw new Error("INVALID_AUTOMATIC_DISCOVERY");
+    return discovered;
+  }
+
+  private assessDiscovery(discovered:AutomaticConnectionDiscovery,signal?:AbortSignal){
+    try{
+      const missing=CONNECTION_FIELDS.filter(key=>typeof discovered.environment[key]!=="string"||!discovered.environment[key]?.trim()||key==="country"&&!/^[A-Z]{2}$/i.test(discovered.environment[key]!.trim()));
+      if(missing.length)return Promise.resolve(this.offerFallback(discovered.environment,missing));
+      const environment=this.readiness.assess(discovered.environment as ConnectionEnvironment,this.clock()).environment;
+      return this.validate(environment,discovered.sourceReference,"automatic",signal);
+    }catch{return Promise.resolve(this.offerFallback({},[...CONNECTION_FIELDS]));}
   }
 
   private offerFallback(known:Partial<ConnectionEnvironment>,missing:ConnectionField[]) {

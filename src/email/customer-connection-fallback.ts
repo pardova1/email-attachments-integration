@@ -64,6 +64,17 @@ export class CustomerConnectionFallback {
     return form;
   }
 
+  matchesCurrent(customerScope:string,id:string,selections:Partial<Record<ConnectionField,string>>,current:Partial<ConnectionEnvironment>):boolean {
+    const selected=this.resolve(customerScope,id,selections),pending=this.forms.get(id)!;
+    const manual=new Set(pending.form.fields.map(field=>field.key));
+    return CONNECTION_FIELDS.every(field=>{
+      const value=current[field];
+      if(typeof value!=="string"||!value.trim())return manual.has(field);
+      const normalize=(part:string)=>field==="country"?part.trim().toUpperCase():part.trim();
+      return normalize(value)===normalize(selected[field]);
+    });
+  }
+
   resolve(customerScope:string,id:string,selections:Partial<Record<ConnectionField,string>>):ConnectionEnvironment {
     requireConnectionCustomerScope(customerScope);
     const pending=this.forms.get(id);

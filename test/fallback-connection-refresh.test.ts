@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {AutomaticConnectionCoordinator,type AutomaticConnectionDiscovery} from "../src/email/automatic-connection-coordinator.js";
+import {CustomerConnectionFallback} from "../src/email/customer-connection-fallback.js";
+import {GlobalConnectionReadinessAgent} from "../src/email/global-connection-readiness-agent.js";
+const now=new Date("2026-10-11T00:00:00Z"),known={country:"NO",network:"old-network",client:"browser",platform:"android",softwareVersion:"1.0"};
+function setup(){
+ let current:AutomaticConnectionDiscovery={environment:known,observedAt:now.toISOString(),sourceReference:"synthetic-original"};let fail=false;
+ const selected:unknown[]=[];
+ const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"mail",requires:{country:"NO"}}],network:[{id:"new",label:"New network",value:"new-network"}]},()=>now);
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){if(fail)throw new Error("PRIVATE_LOOKUP_ERROR");return structuredClone(current);}},{async toolsFor(env){selected.push(env);return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
+ return {coordinator,selected,set(environment:AutomaticConnectionDiscovery["environment"]){current={environment,observedAt:now.toISOString(),sourceReference:"synthetic-current"};},fail(){fail=true;}};
+}
+async function form(coordinator:AutomaticConnectionCoordinator){const result=await coordinator.check();if(result.status!=="customer-input-required")throw new Error("FORM_REQUIRED");return result.form;}
+test("network changes discard old form context and regenerate only current missing fields",async()=>{
+ const item=setup(),first=await form(item.coordinator);item.set({...known,network:"new-network"});
+ const renewed=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(item.selected.length,0);if(renewed.status!=="customer-input-required")throw new Error("NEW_FORM_REQUIRED");assert.notEqual(renewed.form.id,first.id);assert.deepEqual(renewed.form.fields.map(field=>field.key),["provider"]);
+ await item.coordinator.submitFallback(renewed.form.id,{provider:"mail"});assert.deepEqual(item.selected,[{...known,network:"new-network",provider:"mail"}]);
+});
+test("lost automatic observations cannot be reused as current details",async()=>{
+ const item=setup(),first=await form(item.coordinator);const {network:_network,...remaining}=known;item.set(remaining);
+ const renewed=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(item.selected.length,0);if(renewed.status!=="customer-input-required")throw new Error("NEW_FORM_REQUIRED");assert.deepEqual(renewed.form.fields.map(field=>field.key),["network","provider"]);
+});
+test("newly complete discovery overrides obsolete customer choices through normal validation",async()=>{
+ const item=setup(),first=await form(item.coordinator);item.set({...known,country:"SE",network:"new-network",provider:"other-mail",softwareVersion:"2.0"});
+ const result=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(result.status,"assessed");if(result.status!=="assessed")throw new Error("ASSESSMENT_REQUIRED");assert.equal(result.environmentSource,"automatic");assert.equal(result.retryRequired,true);assert.deepEqual(item.selected,[{...known,country:"SE",network:"new-network",provider:"other-mail",softwareVersion:"2.0"}]);
+});
+test("refresh failure stays an internal retry and cannot validate stale form context",async()=>{
+ const item=setup(),first=await form(item.coordinator);item.fail();const result=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(result.status,"pending-internal-retry");assert.equal(item.selected.length,0);assert.equal(JSON.stringify(result).includes("PRIVATE_LOOKUP_ERROR"),false);
+});
+test("country changes cannot reuse choices filtered against the old country",async()=>{
+ const item=setup(),first=await form(item.coordinator);item.set({...known,country:"SE"});const result=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(result.status,"pending-internal-retry");assert.equal(item.selected.length,0);
+});

@@ -59,10 +59,10 @@ export class ConnectionFormModel {
   try{const result=await this.client.check({language:this.language,...(software?{software}:{})},this.controller!.signal);this.finish(token,result);}
   catch{if(this.current(token)){this.phase="unavailable";this.emit();}}
  }
- async submit(){
+ async submit(software?:ConnectionCheckInput["software"]){
   this.active();if(!this.state().canSubmit||this.result?.status!=="customer-input-required")throw new Error("CONNECTION_FORM_NOT_READY");
   const formId=this.result.form.id,selections=structuredClone(this.selections),token=this.begin("submitting");this.emit();
-  try{const result=await this.client.submit({formId,selections,language:this.language},this.controller!.signal);this.finish(token,result);}
+  try{const result=await this.client.submit({formId,selections,language:this.language,...(software?{software}:{})},this.controller!.signal);this.finish(token,result);}
   catch{if(this.current(token)){this.phase="unavailable";this.emit();}}
  }
  invalidateConnection(){

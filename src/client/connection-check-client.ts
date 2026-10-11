@@ -11,7 +11,7 @@ const resultSchema=z.discriminatedUnion("status",[
 ]);
 const software=z.object({client:z.string().trim().min(1).max(256).optional(),platform:z.string().trim().min(1).max(256).optional(),softwareVersion:z.string().trim().min(1).max(256).optional()}).strict();
 const checkInput=z.object({language:z.string().min(1).max(100).optional(),software:software.optional()}).strict();
-const selectionInput=z.object({formId:z.uuid(),language:z.string().min(1).max(100).optional(),selections:z.partialRecord(field,z.string().min(1).max(256))}).strict();
+const selectionInput=z.object({formId:z.uuid(),language:z.string().min(1).max(100).optional(),software:software.optional(),selections:z.partialRecord(field,z.string().min(1).max(256))}).strict();
 export type ConnectionClientResult=z.infer<typeof resultSchema>;
 export type ConnectionCheckInput=z.infer<typeof checkInput>;
 export type ConnectionSelectionInput=z.infer<typeof selectionInput>;
