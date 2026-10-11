@@ -114,3 +114,17 @@ export const CONNECTION_DIFFICULTY_NOTICES: Readonly<Record<string,string>> = Ob
 export function connectionDifficultyNotice(requested:string):string {
  return CONNECTION_DIFFICULTY_NOTICES[selectConnectionLanguage(requested)]??PUBLIC_TECHNICAL_DIFFICULTIES_NOTICE;
 }
+
+// Choose the first supported device preference, skipping unsupported languages
+// rather than falling back to English before examining the rest of the list.
+export function selectPreferredConnectionLanguage(preferences:readonly string[],catalog:Record<string,ConnectionTranslation>=CONNECTION_TRANSLATIONS):string {
+ const fallback=selectConnectionLanguage("en",catalog),tags=Object.keys(catalog);
+ for(const preference of preferences){
+  if(typeof preference!=="string")continue;
+  let normalized:string;try{normalized=Intl.getCanonicalLocales(preference)[0]?.toLowerCase();}catch{continue;}
+  if(!normalized)continue;
+  const supported=tags.find(tag=>tag.toLowerCase()===normalized)??tags.find(tag=>tag.toLowerCase()===normalized.split("-")[0]);
+  if(supported)return supported;
+ }
+ return fallback;
+}

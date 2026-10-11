@@ -1,12 +1,18 @@
 import type {ConnectionCheckClient,ConnectionCheckInput,ConnectionClientResult} from "./connection-check-client.js";
 import {observeConnectionFormLifecycle} from "./connection-form-lifecycle.js";
 import {ConnectionFormModel} from "./connection-form-model.js";
-import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice} from "../email/connection-languages.js";
+import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice,selectPreferredConnectionLanguage} from "../email/connection-languages.js";
 
 // Embed in an authenticated app. Values become text nodes, never HTML; the
 // client owns authorization and submits JSON rather than exposing tokens in forms.
 export function mountConnectionAssistance(container:HTMLElement,client:ConnectionCheckClient,options:{language?:string;software?:ConnectionCheckInput["software"];onAssessed?:(result:Extract<ConnectionClientResult,{status:"assessed"}>)=>void}={}) {
- const document=container.ownerDocument,model=new ConnectionFormModel(client,options.language);
+ const document=container.ownerDocument;
+ let language=options.language;
+ if(language===undefined){
+  try{const navigator=document.defaultView?.navigator;language=selectPreferredConnectionLanguage(navigator?.languages?.length?navigator.languages:navigator?.language?[navigator.language]:[]);}
+  catch{language="en";}
+ }
+ const model=new ConnectionFormModel(client,language);
  let expiryTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,assessmentDelivered:string|undefined=undefined;
  const unsubscribe=model.subscribe(state=>{
   const active=document.activeElement;

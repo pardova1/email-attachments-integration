@@ -192,3 +192,9 @@ Browser connectivity events are hints, not live provider probes. They do not ide
 An application can host the bundle and import its exports from a module script, construct the client with an operator-configured HTTPS API and current-session token callback, then mount the form in its own page. Never embed access tokens in the module, URLs, or HTML. The bundle does not include server adapters or service secrets.
 
 A distribution test builds and imports the actual bundle without DOM globals, checks its language exports and HTTPS policy, and exercises an authenticated check using synthetic transport. This is an embeddable browser distribution, not an installed/downloadable app, published site, or live-provider certification. Production DOM/device verification and app packaging remain pending.
+
+### Device-preferred starting language
+
+When the host does not supply an explicit language, the mounted browser form selects the first supported entry in the device's ordered language preferences. Unsupported or malformed entries are skipped before considering later preferences; empty/unavailable preferences fall back to English. Explicit host language selection takes precedence, and customers can still change the selector. The standalone browser bundle exports `selectPreferredConnectionLanguage` for other host UI use.
+
+Language preference controls presentation only. It does not determine country, email provider, network software, or readiness. The catalog still contains 38 language packs, so unsupported languages require additional translations rather than an assumed worldwide-language guarantee.
