@@ -49,6 +49,7 @@ jobs:
           test/security.test.ts
           test/sender-transfer-access.test.ts
           test/sender-transfer-http.test.ts
+          test/sender-authentication.test.ts
           test/transfer-completion-idempotency.test.ts
           test/transfer-byte-count.test.ts
           test/verified-download-service.test.ts
