@@ -298,3 +298,11 @@ test("additional African and Asian regional preferences render complete connecti
  }
  assert.equal(form.fields[0].options[0].value,"NO");
 });
+test("absolute form deadlines cap lifetime and respect earlier choice expiration",()=>{
+ const start=new Date("2026-10-11T16:00:00Z"),deadline=new Date(start.getTime()+30_000).toISOString();
+ const fallback=new CustomerConnectionFallback({country:[{id:"no",label:"Norway",value:"NO",expiresAt:new Date(start.getTime()+10_000).toISOString()}]},()=>start);
+ assert.equal(fallback.prepare("sender-a",{},["country"],deadline)!.expiresAt,new Date(start.getTime()+10_000).toISOString());
+ const ordinary=new CustomerConnectionFallback({country:[{id:"no",label:"Norway",value:"NO"}]},()=>start);
+ assert.equal(ordinary.prepare("sender-a",{},["country"],deadline)!.expiresAt,deadline);assert.equal(ordinary.prepare("sender-a",{},["country"],new Date(start.getTime()+3600_000).toISOString())!.expiresAt,new Date(start.getTime()+900_000).toISOString());
+ assert.equal(ordinary.prepare("sender-a",{},["country"],start.toISOString()),undefined);assert.throws(()=>ordinary.prepare("sender-a",{},["country"],"invalid"),/INVALID_CONNECTION_FORM_DEADLINE/);
+});

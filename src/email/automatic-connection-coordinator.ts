@@ -89,15 +89,15 @@ export class AutomaticConnectionCoordinator {
     try{
       if(discovered.retryFields?.length)return Promise.resolve(this.internalRetry());
       const missing=CONNECTION_FIELDS.filter(key=>typeof discovered.environment[key]!=="string"||!discovered.environment[key]?.trim()||key==="country"&&!/^[A-Z]{2}$/i.test(discovered.environment[key]!.trim()));
-      if(missing.length)return Promise.resolve(this.offerFallback(discovered.environment,missing));
+      if(missing.length)return Promise.resolve(this.offerFallback(discovered.environment,missing,discovered.observedAt));
       const environment=this.readiness.assess(discovered.environment as ConnectionEnvironment,this.clock()).environment;
       return this.validate(environment,discovered.sourceReference,"automatic",discovered.observedAt,signal);
     }catch{return Promise.resolve(this.internalRetry());}
   }
 
-  private offerFallback(known:Partial<ConnectionEnvironment>,missing:ConnectionField[]) {
+  private offerFallback(known:Partial<ConnectionEnvironment>,missing:ConnectionField[],observedAt:string) {
     try {
-      const form=this.fallback?.prepare(this.customerScope!,known,missing);
+      const form=this.fallback?.prepare(this.customerScope!,known,missing,new Date(Date.parse(observedAt)+5*60*1000).toISOString());
       if(form)return {status:"customer-input-required" as const,form,retryRequired:true as const};
     } catch { /* Catalog/capacity failure stays an internal retry. */ }
     return this.internalRetry();
