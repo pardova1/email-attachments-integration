@@ -63,7 +63,7 @@ export class AutomaticConnectionCoordinator {
     if(discovered.retryFields?.length)return this.internalRetry();
     if(!this.fallback.matchesCurrent(this.customerScope!,formId,selections,discovered.environment))return this.assessDiscovery(discovered,signal);
     const environment=this.readiness.assess(selected,this.clock()).environment;
-    return this.validate(environment,`customer-selection:${formId}`,"customer-selection",signal);
+    return this.validate(environment,`customer-selection:${formId}`,"customer-selection",discovered.observedAt,signal);
   }
 
   private async discover(signal?:AbortSignal){
@@ -91,7 +91,7 @@ export class AutomaticConnectionCoordinator {
       const missing=CONNECTION_FIELDS.filter(key=>typeof discovered.environment[key]!=="string"||!discovered.environment[key]?.trim()||key==="country"&&!/^[A-Z]{2}$/i.test(discovered.environment[key]!.trim()));
       if(missing.length)return Promise.resolve(this.offerFallback(discovered.environment,missing));
       const environment=this.readiness.assess(discovered.environment as ConnectionEnvironment,this.clock()).environment;
-      return this.validate(environment,discovered.sourceReference,"automatic",signal);
+      return this.validate(environment,discovered.sourceReference,"automatic",discovered.observedAt,signal);
     }catch{return Promise.resolve(this.internalRetry());}
   }
 
@@ -105,10 +105,10 @@ export class AutomaticConnectionCoordinator {
 
   private internalRetry(){return {status:"pending-internal-retry" as const,retryRequired:true as const,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};}
 
-  private async validate(environment:ConnectionEnvironment,reference:string,source:"automatic"|"customer-selection",signal?:AbortSignal) {
+  private async validate(environment:ConnectionEnvironment,reference:string,source:"automatic"|"customer-selection",observedAt:string,signal?:AbortSignal) {
     try {
       const tools=await this.internalStep(probeSignal=>this.catalog.toolsFor(structuredClone(environment),probeSignal),signal);
-      const validation=await new GlobalConnectionValidationRunner(this.readiness,tools,10_000,15*60*1000,this.clock).run(environment,signal);
+      const validation=await new GlobalConnectionValidationRunner(this.readiness,tools,10_000,15*60*1000,this.clock,new Date(Date.parse(observedAt)+5*60*1000).toISOString()).run(environment,signal);
       return {status:"assessed" as const,validation,discoveryReference:reference,environmentSource:source,retryRequired:validation.assessment.status!=="verified"};
     } catch {
       signal?.throwIfAborted();

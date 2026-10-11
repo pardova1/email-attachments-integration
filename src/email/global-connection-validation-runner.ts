@@ -15,15 +15,21 @@ export interface ConnectionProbeTool {
 }
 
 export class GlobalConnectionValidationRunner {
+  private readonly evidenceDeadline?:number;
   private readonly tools: Partial<Record<ConnectionCheck, ConnectionProbeTool>>;
   constructor(
     private readonly agent: GlobalConnectionReadinessAgent,
     tools: Partial<Record<ConnectionCheck, ConnectionProbeTool>>,
     private readonly timeoutMs = 10_000,
     private readonly evidenceLifetimeMs = 15 * 60 * 1000,
-    private readonly clock = () => new Date()
+    private readonly clock = () => new Date(),
+    maximumEvidenceExpiresAt?:string
   ) {
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000 || !Number.isInteger(evidenceLifetimeMs) || evidenceLifetimeMs < 1 || evidenceLifetimeMs > 24 * 60 * 60 * 1000) throw new Error("INVALID_CONNECTION_VALIDATION_POLICY");
+    if(maximumEvidenceExpiresAt!==undefined){
+      if(typeof maximumEvidenceExpiresAt!=="string"||!Number.isFinite(Date.parse(maximumEvidenceExpiresAt)))throw new Error("INVALID_CONNECTION_EVIDENCE_DEADLINE");
+      this.evidenceDeadline=Date.parse(maximumEvidenceExpiresAt);
+    }
     this.tools = {};
     for (const check of REQUIRED_CONNECTION_CHECKS) {
       const tool = tools[check];
@@ -41,7 +47,8 @@ export class GlobalConnectionValidationRunner {
     const checks: ConnectionEvidence["checks"] = [];
     const missingTools: ConnectionCheck[] = [];
     const sourceGuards:(()=>boolean)[]=[];
-    let evidenceExpiresAt=started.getTime()+this.evidenceLifetimeMs;
+    let evidenceExpiresAt=Math.min(started.getTime()+this.evidenceLifetimeMs,this.evidenceDeadline??Infinity);
+    if(evidenceExpiresAt<=started.getTime())throw new Error("CONNECTION_OBSERVATION_EXPIRED");
     let recipientNeedsInstallation: ConnectionEvidence["recipientNeedsInstallation"] = "unknown";
     for (const check of REQUIRED_CONNECTION_CHECKS) {
       signal?.throwIfAborted();
