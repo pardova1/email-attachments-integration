@@ -38,3 +38,10 @@ test("source failures during selection refresh remain internal even if every fie
  const coordinator=new AutomaticConnectionCoordinator({async discover(){return {...firstObservation,...(retry?{retryFields:["network" as const]}:{})};}},{async toolsFor(){calls++;return {};}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
  const first=await form(coordinator);retry=true;assert.equal((await coordinator.submitFallback(first.id,{provider:"mail"})).status,"pending-internal-retry");assert.equal(calls,0);
 });
+test("malformed refreshed manual or automatic details cannot reuse a form or run probes",async()=>{
+ for(const patch of [{provider:123},{provider:"*"},{country:"Norway"},{network:null},{softwareVersion:"bad\nversion"}]){
+  const item=setup(),first=await form(item.coordinator);item.set({...known,...patch} as unknown as AutomaticConnectionDiscovery["environment"]);
+  const result=await item.coordinator.submitFallback(first.id,{provider:"mail"});assert.equal(result.status,"pending-internal-retry");assert.equal(item.selected.length,0);assert.equal("form" in result,false);
+  item.set(known);assert.equal((await item.coordinator.submitFallback(first.id,{provider:"mail"})).status,"assessed");assert.equal(item.selected.length,1);
+ }
+});
