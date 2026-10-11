@@ -75,3 +75,11 @@ test("exact profile catalogs automatically supply fallback choices without a sep
   const checked=await (await post(`${url}/selections`,{software,formId:first.form.id,selections:{provider:first.form.fields[0].options[0].id}})).json();assert.equal(checked.validation.assessment.status,"verified");assert.deepEqual(configured.runs,[...REQUIRED_CONNECTION_CHECKS]);
  });
 });
+test("authenticated HTTP requests use their customer catalog even for identical environments",async()=>{
+ const configured=configuration(),scopes:string[]=[];let fail=false;
+ await withServer({authenticator,observations:{...configured.observations,async network(){return observed({country:"KW",network:environment.network});},async catalogFor(customer,context,signal){signal.throwIfAborted();scopes.push(customer.userId);assert.deepEqual(context.softwareHints,software);if(fail)throw new Error("PRIVATE_ACCOUNT_ADAPTER_ERROR");return customer.userId==="sender-a"?configured.observations.catalog:{async toolsFor(){return {};}};}}},async url=>{
+  const first=await (await post(`${url}/check`,{software},"sender-a")).json();assert.equal(first.validation.assessment.status,"verified");
+  const second=await (await post(`${url}/check`,{software},"sender-b")).json();assert.equal(second.validation.assessment.status,"not-ready");assert.equal(configured.runs.length,REQUIRED_CONNECTION_CHECKS.length);assert.deepEqual(scopes,["sender-a","sender-b"]);
+  fail=true;const failed=await post(`${url}/check`,{software},"sender-b");assert.equal(failed.status,503);assert.equal(JSON.stringify(await failed.json()).includes("PRIVATE_ACCOUNT_ADAPTER_ERROR"),false);assert.equal(configured.runs.length,REQUIRED_CONNECTION_CHECKS.length);
+ });
+});
