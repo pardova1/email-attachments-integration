@@ -70,6 +70,7 @@ jobs:
           test/connection-check-http.test.ts
           test/connection-check-client.test.ts
           test/connection-form-model.test.ts
+          test/connection-prefix-choice.test.ts
           test/connection-form-lifecycle.test.ts
           test/connection-coordinator-factory.test.ts
           test/connection-browser-bundle.test.ts

@@ -1,3 +1,4 @@
+import {completeConnectionChoiceIds} from "../email/connection-choice-paths.js";
 import type {ConnectionCheckClient,ConnectionClientResult,ConnectionCheckInput,ConnectionSelectionInput} from "./connection-check-client.js";
 import {selectConnectionLanguage,CONNECTION_TRANSLATIONS,validateConnectionFormTranslations,type ConnectionTranslation} from "../email/connection-languages.js";
 type Field=keyof ConnectionSelectionInput["selections"];
@@ -15,6 +16,7 @@ export class ConnectionFormModel {
  private language:string;
  private result?:ConnectionClientResult;
  private selections:ConnectionSelectionInput["selections"]={};
+ private readonly choiceCache=new Map<Field,Set<string>>();
  private generation=0;
  private controller?:AbortController;
  private disposed=false;
@@ -27,7 +29,7 @@ export class ConnectionFormModel {
  state():ConnectionFormState {
   const form=this.result?.status==="customer-input-required"?this.result.form:undefined,now=this.clock().getTime();
   const expired=!!form&&(!Number.isFinite(now)||Date.parse(form.expiresAt)<=now||!Number.isFinite(Date.parse(form.expiresAt)));
-  const complete=!!form&&form.fields.every(field=>field.options.some(option=>option.id===this.selections[field.key]&&this.available(option.requires)));
+  const complete=!!form&&form.fields.every(field=>field.options.some(option=>option.id===this.selections[field.key]&&this.choiceAvailable(field.key,option.id)));
   const result=structuredClone(this.result);
   if(result?.status==="assessed"&&result.validation.assessment.status==="verified"){
    const assessment=result.validation.assessment,deadline=Date.parse(assessment.expiresAt??"");
@@ -44,14 +46,27 @@ export class ConnectionFormModel {
  choose(field:Field,id:string){
   this.active();if(this.phase!=="choosing"||this.state().expired||this.result?.status!=="customer-input-required")throw new Error("CONNECTION_FORM_NOT_READY");
   const offered=this.result.form.fields.find(item=>item.key===field),option=offered?.options.find(item=>item.id===id);
-  if(id!==""&&(!option||!this.available(option.requires)))throw new Error("INVALID_CONNECTION_CHOICE");
+  if(id!==""&&(!option||!this.choiceAvailable(field,id)))throw new Error("INVALID_CONNECTION_CHOICE");
   if(!offered)throw new Error("INVALID_CONNECTION_CHOICE");
   if(id)this.selections[field]=id;else delete this.selections[field];
+  this.choiceCache.clear();
   for(const key of fields){
    const options=this.result.form.fields.find(item=>item.key===key)?.options;
-   if(this.selections[key]&&!options?.some(item=>item.id===this.selections[key]&&this.available(item.requires)))delete this.selections[key];
+   if(this.selections[key]&&!options?.some(item=>item.id===this.selections[key]&&this.choiceAvailable(key,item.id))){delete this.selections[key];this.choiceCache.clear();}
   }
   this.emit();
+ }
+ choiceAvailable(field:Field,id:string){
+  if(this.result?.status!=="customer-input-required")return false;
+  const offered=this.result.form.fields,option=offered.find(item=>item.key===field)?.options.find(item=>item.id===id);
+  if(!option||!this.available(option.requires))return false;
+  if(!this.choiceCache.has(field)){
+   const fixed:ConnectionSelectionInput["selections"]={};
+   for(const item of offered){if(item.key===field)break;if(this.selections[item.key])fixed[item.key]=this.selections[item.key];}
+   const paths=completeConnectionChoiceIds(offered.map(item=>item.key),new Map(offered.map(item=>[item.key,item.options])),fixed);
+   this.choiceCache.set(field,paths?.get(field)??new Set());
+  }
+  return this.choiceCache.get(field)!.has(id);
  }
  optionAvailable(requires?:Partial<Record<Field,string>>){return this.available(requires);}
  async check(software?:ConnectionCheckInput["software"]){
@@ -81,9 +96,9 @@ export class ConnectionFormModel {
   if(result?.status!=="customer-input-required")return false;
   return Object.entries(requires??{}).every(([key,value])=>result.form.fields.find(field=>field.key===key)?.options.find(option=>option.id===this.selections[key as Field])?.value===value);
  }
- private begin(phase:ConnectionFormState["phase"]){this.controller?.abort();this.controller=new AbortController();this.phase=phase;return ++this.generation;}
+ private begin(phase:ConnectionFormState["phase"]){this.choiceCache.clear();this.controller?.abort();this.controller=new AbortController();this.phase=phase;return ++this.generation;}
  private current(token:number){return !this.disposed&&this.generation===token;}
- private finish(token:number,result:ConnectionClientResult){if(!this.current(token))return;this.result=structuredClone(result);this.readinessWithdrawalReason=undefined;this.selections={};this.phase=result.status==="customer-input-required"?"choosing":result.status==="assessed"?"assessed":"unavailable";this.emit();}
+ private finish(token:number,result:ConnectionClientResult){if(!this.current(token))return;this.result=structuredClone(result);this.choiceCache.clear();this.readinessWithdrawalReason=undefined;this.selections={};this.phase=result.status==="customer-input-required"?"choosing":result.status==="assessed"?"assessed":"unavailable";this.emit();}
  private active(){if(this.disposed)throw new Error("CONNECTION_FORM_DISPOSED");}
  private emit(){for(const listener of this.listeners)listener(this.state());}
 }
