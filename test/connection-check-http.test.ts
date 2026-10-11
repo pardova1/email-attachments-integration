@@ -120,7 +120,7 @@ test("overlapping requests share a snapshotted customer limit while other custom
   concurrency.perCustomer=10;concurrency.total=1000;
   const first=post(`${url}/check`,{});await started;
   try{
-   for(const [path,body] of [["check",{}],["selections",{formId:"11111111-1111-4111-8111-111111111111",selections:{}}]] as const){const response=await post(`${url}/${path}`,body);assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:"CONNECTION_CHECK_UNAVAILABLE"});}
+   for(const [path,body] of [["check",{}],["selections",{formId:"11111111-1111-4111-8111-111111111111",selections:{}}]] as const){const response=await post(`${url}/${path}`,{...body,language:"ar-KW"});assert.equal(response.status,503);assert.equal(response.headers.get("content-language"),"ar");assert.equal(response.headers.get("cache-control"),"no-store");assert.deepEqual(await response.json(),{status:"pending-internal-retry",retryRequired:true,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:"ar"});}
    assert.equal(calls,1);assert.equal((await post(`${url}/check`,{},"sender-b")).status,200);assert.equal(calls,2);
   }finally{release();}
   assert.equal((await first).status,200);assert.equal((await post(`${url}/check`,{})).status,200);assert.equal(calls,3);
@@ -174,5 +174,44 @@ test("setup deadline returns localized internal retry and releases request capac
   assert.equal(response.status,503);assert.equal(response.headers.get("content-language"),"ar");assert.equal(response.headers.get("cache-control"),"no-store");
   assert.deepEqual(await response.json(),{status:"pending-internal-retry",retryRequired:true,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:"ar"});assert.equal(setupSignal?.aborted,true);
   const recovered=await post(`${url}/check`,{});assert.equal(recovered.status,200);assert.equal((await recovered.json()).status,"assessed");assert.equal(calls,2);
+ });
+});
+
+
+test("browser automatically recovers from global capacity without admitting excess work",async()=>{
+ const {ConnectionCheckClient}=await import("../src/client/connection-check-client.js");
+ const {ConnectionFormModel}=await import("../src/client/connection-form-model.js");
+ let entered!:()=>void,release!:()=>void,calls=0;
+ const started=new Promise<void>(resolve=>{entered=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
+ await withServer({authenticator,concurrency:{total:1},async coordinatorFor(customer){calls++;if(calls===1){entered();await held;}return capacityCoordinator(customer);}},async url=>{
+  const first=post(`${url}/check`,{});await started;
+  let requests=0,tokens=0;const responses:unknown[]=[],phases:string[]=[];
+  const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>{tokens++;return "sender-b";},async(target,init)=>{
+   requests++;const response=await fetch(`${url}/${String(target).split("/").at(-1)}`,init);responses.push(await response.clone().json());
+   if(requests===1){assert.equal(response.status,503);assert.equal(calls,1);release();assert.equal((await first).status,200);}
+   return response;
+  });
+  const model=new ConnectionFormModel(client,"sw",undefined,undefined,{maxAttempts:2,delayMs:0});model.subscribe(state=>phases.push(state.phase));
+  try{
+   await model.check();assert.equal(requests,2);assert.equal(tokens,2);assert.equal(calls,2);assert.equal(model.state().phase,"assessed");
+   assert.deepEqual(responses[0],{status:"pending-internal-retry",retryRequired:true,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:"sw"});
+   assert.equal(phases.includes("choosing"),false);assert.equal(phases.includes("unavailable"),false);
+  }finally{release();await first;model.dispose();}
+ });
+});
+
+test("persistent customer capacity exhausts bounded browser retries without starting adapters",async()=>{
+ const {ConnectionCheckClient}=await import("../src/client/connection-check-client.js");
+ const {ConnectionFormModel}=await import("../src/client/connection-form-model.js");
+ let entered!:()=>void,release!:()=>void,calls=0;
+ const started=new Promise<void>(resolve=>{entered=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
+ await withServer({authenticator,async coordinatorFor(customer){calls++;if(calls===1){entered();await held;}return capacityCoordinator(customer);}},async url=>{
+  const first=post(`${url}/check`,{});await started;let requests=0;
+  const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"sender-a",async(target,init)=>{requests++;return fetch(`${url}/${String(target).split("/").at(-1)}`,init);});
+  const model=new ConnectionFormModel(client,"fa",undefined,undefined,{maxAttempts:2,delayMs:0});
+  try{
+   await model.check();assert.equal(requests,2);assert.equal(calls,1);assert.equal(model.state().phase,"unavailable");assert.equal(model.state().result?.status,"pending-internal-retry");
+   release();await first;await model.check();assert.equal(model.state().phase,"assessed");assert.equal(calls,2);
+  }finally{release();await first;model.dispose();}
  });
 });
