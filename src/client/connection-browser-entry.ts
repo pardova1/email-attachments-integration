@@ -3,3 +3,5 @@ export {ConnectionCheckClient,ConnectionClientError} from "./connection-check-cl
 export type {ConnectionCheckInput,ConnectionSelectionInput,ConnectionClientResult} from "./connection-check-client.js";
 export {mountConnectionAssistance} from "./connection-form-view.js";
 export {CONNECTION_TRANSLATIONS,selectConnectionLanguage,selectPreferredConnectionLanguage} from "../email/connection-languages.js";
+export {mountSessionConnectionAssistance} from "./connection-session-view.js";
+export type {ConnectionApplicationSession,SessionConnectionOptions} from "./connection-session-view.js";
