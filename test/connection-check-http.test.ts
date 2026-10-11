@@ -111,3 +111,33 @@ test("language header parsing is bounded stable and excludes malformed or zero-q
  assert.deepEqual(connectionLanguagePreferences(undefined),[]);assert.deepEqual(connectionLanguagePreferences("a".repeat(4097)),[]);
  assert.equal(connectionLanguagePreferences(Array(60).fill("en").join(",")).length,50);
 });
+
+function capacityCoordinator(customer:{userId:string}){return new AutomaticConnectionCoordinator({async discover(){return {environment:{...known,country:"KW"},observedAt:new Date().toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){return {};}},new GlobalConnectionReadinessAgent(),undefined,10_000,undefined,customer.userId);}
+test("overlapping requests share a snapshotted customer limit while other customers can proceed",async()=>{
+ const concurrency={perCustomer:1,total:100};
+ let entered!:()=>void,release!:()=>void,calls=0;const started=new Promise<void>(resolve=>{entered=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
+ await withServer({authenticator,concurrency,async coordinatorFor(customer){calls++;if(calls===1){entered();await held;}return capacityCoordinator(customer);}},async url=>{
+  concurrency.perCustomer=10;concurrency.total=1000;
+  const first=post(`${url}/check`,{});await started;
+  try{
+   for(const [path,body] of [["check",{}],["selections",{formId:"11111111-1111-4111-8111-111111111111",selections:{}}]] as const){const response=await post(`${url}/${path}`,body);assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:"CONNECTION_CHECK_UNAVAILABLE"});}
+   assert.equal(calls,1);assert.equal((await post(`${url}/check`,{},"sender-b")).status,200);assert.equal(calls,2);
+  }finally{release();}
+  assert.equal((await first).status,200);assert.equal((await post(`${url}/check`,{})).status,200);assert.equal(calls,3);
+ });
+});
+test("global capacity rejects excess work and becomes available after the active check completes",async()=>{
+ let entered!:()=>void,release!:()=>void,calls=0;const started=new Promise<void>(resolve=>{entered=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
+ await withServer({authenticator,concurrency:{total:1},async coordinatorFor(customer){calls++;if(calls===1){entered();await held;}return capacityCoordinator(customer);}},async url=>{
+  const first=post(`${url}/check`,{});await started;try{const response=await post(`${url}/check`,{},"sender-b");assert.equal(response.status,503);assert.equal(calls,1);}finally{release();}
+  assert.equal((await first).status,200);assert.equal((await post(`${url}/check`,{},"sender-b")).status,200);assert.equal(calls,2);
+ });
+});
+test("timeouts and setup failures release concurrency slots",async()=>{
+ let calls=0;await withServer({authenticator,timeoutMs:100,concurrency:{total:1},async coordinatorFor(customer){calls++;if(calls===1)return new Promise(()=>{});if(calls===2)throw new Error("PRIVATE_SETUP_FAILURE");return capacityCoordinator(customer);}},async url=>{
+  assert.equal((await post(`${url}/check`,{})).status,503);assert.equal((await post(`${url}/check`,{})).status,503);assert.equal((await post(`${url}/check`,{})).status,200);assert.equal(calls,3);
+ });
+});
+test("invalid concurrency policies are rejected when the router is mounted",()=>{
+ for(const concurrency of [{perCustomer:0},{perCustomer:11},{perCustomer:1.5},{total:0},{total:1001},{perCustomer:2,total:1}])assert.throws(()=>createConnectionCheckRouter({authenticator,concurrency}),/INVALID_CONNECTION_CONCURRENCY/);
+});
