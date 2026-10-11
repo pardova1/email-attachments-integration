@@ -184,3 +184,11 @@ The factory does not supply live network/provider discovery or probes. The shipp
 The mounted form also observes browser `offline` and `online` events. Either event withdraws a prior verified assessment, cancels pending checks/submissions, and ignores their late replies. Returning online does not restore old evidence. A fresh successful check is required. Fallback choices tied to the prior context are discarded so they cannot be submitted after an interruption. These events are handled even while the page is hidden, and disposal removes their listeners.
 
 Browser connectivity events are hints, not live provider probes. They do not identify countries or detect every network change (for example, changing networks while remaining online). Server-side validation and live provider testing remain necessary. No automatic retry loop is introduced.
+
+### Browser distribution build
+
+`npm run build` now also bundles the authenticated connection client and DOM form as a standalone ES module at `dist/browser/connection-assistance.js`. `npm run build:browser` builds it separately. The browser entry exports `ConnectionCheckClient`, `ConnectionClientError`, `mountConnectionAssistance`, and the connection language catalog/selector. It contains the necessary validation library and has no external module imports. Build-only esbuild is explicitly pinned; source maps are omitted and dependency legal notices retained.
+
+An application can host the bundle and import its exports from a module script, construct the client with an operator-configured HTTPS API and current-session token callback, then mount the form in its own page. Never embed access tokens in the module, URLs, or HTML. The bundle does not include server adapters or service secrets.
+
+A distribution test builds and imports the actual bundle without DOM globals, checks its language exports and HTTPS policy, and exercises an authenticated check using synthetic transport. This is an embeddable browser distribution, not an installed/downloadable app, published site, or live-provider certification. Production DOM/device verification and app packaging remain pending.
