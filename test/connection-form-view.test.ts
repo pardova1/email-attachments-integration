@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {parseHTML} from "linkedom";
+import {mountConnectionAssistance} from "../src/client/connection-form-view.js";
+import {ConnectionCheckClient} from "../src/client/connection-check-client.js";
+
+function fallback(){return {status:"customer-input-required",retryRequired:true,language:"en",direction:"ltr",languageOptions:[{tag:"en",label:"English"}],form:{id:"11111111-1111-4111-8111-111111111111",message:"Choose",expiresAt:new Date(Date.now()+60_000).toISOString(),fields:[{key:"client",label:"Client",options:[{id:"a",label:"<img src=x onerror=alert(1)>",value:"a"},{id:"b",label:"App B",value:"b"}]},{key:"softwareVersion",label:"Version",options:[{id:"a1",label:"A1",value:"1",requires:{client:"a"}},{id:"b2",label:"B2",value:"2",requires:{client:"b"}}]}]}};}
+const assessed=()=>({status:"assessed",retryRequired:true,language:"en",discoveryReference:"synthetic",environmentSource:"customer-selection",validation:{missingTools:["upload"],assessment:{environment:{country:"NO",network:"test",provider:"test",client:"a",platform:"android",softwareVersion:"1"},status:"not-ready",requiredChecks:["upload"],reasons:["CHECK_REQUIRED:upload"]}}});
+const response=(value:unknown)=>new Response(JSON.stringify(value),{headers:{"content-type":"application/json"}});
+async function settled(model:ReturnType<typeof mountConnectionAssistance>["model"]){
+ if(!["checking","submitting"].includes(model.state().phase))return;
+ await new Promise<void>(resolve=>{let stop:()=>void=()=>{};stop=model.subscribe(state=>{if(!["checking","submitting"].includes(state.phase)){stop();resolve();}});});
+}
+function select(container:HTMLElement,name:string,value:string,window:ReturnType<typeof parseHTML>["window"]){
+ const node=container.querySelector<HTMLSelectElement>(`select[name="${name}"]`)!;
+ // linkedom has no select.value setter: set the selected option explicitly.
+ for(const option of Array.from(node.options))option.removeAttribute("selected");
+ Array.from(node.options).find(option=>option.value===value)!.selected=true;
+ node.dispatchEvent(new window.Event("change",{bubbles:true}));
+}
+test("mounted DOM form preserves language selections clears dependents and submits authenticated JSON",async()=>{
+ const {document,window}=parseHTML('<html><body><main id="connection"></main></body></html>');
+ const container=document.getElementById("connection") as unknown as HTMLElement;let requests=0,assessments=0,submitted:unknown;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"test-token",async(_url,init)=>{
+  requests++;assert.equal((init?.headers as Record<string,string>).authorization,"Bearer test-token");
+  if(requests===1)return response(fallback());submitted=JSON.parse(init!.body as string);return response(assessed());
+ });
+ const mounted=mountConnectionAssistance(container,client,{language:"fa",onAssessed(){assessments++;}});
+ try{
+  await settled(mounted.model);assert.equal(container.dir,"rtl");assert.equal(container.querySelector("img"),null);assert.ok(container.textContent?.includes("<img src=x"));
+  assert.equal(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled,true);
+  select(container,"client","a",window);select(container,"softwareVersion","a1",window);assert.equal(mounted.model.state().canSubmit,true);
+  select(container,"connection-language","sv",window);assert.equal(container.lang,"sv");assert.equal(container.dir,"ltr");assert.deepEqual(mounted.model.state().selections,{client:"a",softwareVersion:"a1"});
+  select(container,"client","b",window);assert.deepEqual(mounted.model.state().selections,{client:"b"});assert.equal(container.querySelector<HTMLOptionElement>('option[value="a1"]')?.disabled,true);
+  select(container,"softwareVersion","b2",window);container.querySelector("form")!.dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true}));await settled(mounted.model);
+  assert.deepEqual(submitted,{formId:fallback().form.id,selections:{client:"b",softwareVersion:"b2"},language:"sv"});assert.equal(assessments,1);assert.ok(container.querySelector('[role="alert"]'));
+  select(container,"connection-language","ar",window);assert.equal(container.dir,"rtl");assert.equal(assessments,1);
+ }finally{mounted.dispose();assert.equal(container.childNodes.length,0);}
+});
+test("disposing the mounted form aborts transport and removes resume/network handlers",async()=>{
+ const {document,window}=parseHTML('<html><body><main id="connection"></main></body></html>');const container=document.getElementById("connection") as unknown as HTMLElement;
+ let signal:AbortSignal|undefined,entered!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;});
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"test-token",async(_url,init)=>{signal=init?.signal??undefined;entered();return new Promise(()=>{});});
+ const mounted=mountConnectionAssistance(container,client);await started;mounted.dispose();assert.equal(signal?.aborted,true);
+ for(const event of ["focus","pageshow","offline","online"])window.dispatchEvent(new window.Event(event));document.dispatchEvent(new window.Event("visibilitychange"));
+ assert.equal(container.childNodes.length,0);await new Promise(resolve=>setImmediate(resolve));
+});
