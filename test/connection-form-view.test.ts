@@ -100,3 +100,51 @@ test("offline event pauses expiry recovery and keeps old choices unavailable unt
  const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async()=>{requests++;return response(fallback());});const mounted=mountConnectionAssistance(container,client);
  try{await settled(mounted.model);mounted.model.choose("client","a");window.dispatchEvent(new window.Event("offline"));assert.equal(container.querySelector("button")?.disabled,true);t.mock.timers.tick(60_000);window.dispatchEvent(new window.Event("focus"));assert.equal(requests,1);assert.deepEqual(mounted.model.state().selections,{});window.dispatchEvent(new window.Event("online"));t.mock.timers.tick(250);await settled(mounted.model);assert.equal(requests,2);assert.equal(mounted.model.state().canSubmit,false);}finally{mounted.dispose();}
 });
+
+const internalRetry=()=>({status:"pending-internal-retry",retryRequired:true,language:"en",reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"});
+test("mounted assistance continues after quick retries with backoff and fresh tokens until assessed",async t=>{
+ t.mock.timers.enable({apis:["Date","setTimeout"],now:new Date("2026-10-11T15:00:00Z")});t.mock.method(Math,"random",()=>0);
+ const {document}=parseHTML('<html><body><main></main></body></html>');const container=document.querySelector("main") as unknown as HTMLElement;let requests=0,tokens=0,recovered=false;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>{tokens++;return "token";},async()=>{requests++;return recovered?response(assessed()):new Response(JSON.stringify(internalRetry()),{status:503,headers:{"content-type":"application/json"}});});
+ const mounted=mountConnectionAssistance(container,client,{language:"fa",retry:{maxAttempts:2,delayMs:0}});
+ // Let the first quick retry enter its zero-delay backoff, then release it.
+ await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(0);await settled(mounted.model);
+ try{
+  assert.equal(requests,2);assert.equal(mounted.model.state().phase,"unavailable");
+  for(const delay of [5000,10000,20000,40000,60000,60000]){
+   const before:number=requests;t.mock.timers.tick(delay-1);assert.equal(requests,before);t.mock.timers.tick(1);
+   await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(0);await settled(mounted.model);assert.equal(requests,before+2);
+  }
+  recovered=true;t.mock.timers.tick(60000);await settled(mounted.model);assert.equal(mounted.model.state().phase,"assessed");assert.equal(mounted.model.state().language,"fa");assert.equal(tokens,requests);
+  const done=requests;t.mock.timers.tick(120000);assert.equal(requests,done);
+ }finally{mounted.dispose();}
+});
+test("internal recovery pauses while hidden and offline and is cancelled on disposal",async t=>{
+ t.mock.timers.enable({apis:["Date","setTimeout"],now:new Date("2026-10-11T15:00:00Z")});t.mock.method(Math,"random",()=>0);
+ const {document,window}=parseHTML('<html><body><main></main></body></html>');Object.defineProperty(document,"visibilityState",{value:"visible",writable:true});const container=document.querySelector("main") as unknown as HTMLElement;let requests=0;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async()=>{requests++;return new Response(JSON.stringify(internalRetry()),{status:503,headers:{"content-type":"application/json"}});});const mounted=mountConnectionAssistance(container,client,{retry:{maxAttempts:1,delayMs:0}});
+ try{
+  await settled(mounted.model);Object.defineProperty(document,"visibilityState",{value:"hidden",writable:true});document.dispatchEvent(new window.Event("visibilitychange"));t.mock.timers.tick(120000);assert.equal(requests,1);
+  Object.defineProperty(document,"visibilityState",{value:"visible",writable:true});document.dispatchEvent(new window.Event("visibilitychange"));window.dispatchEvent(new window.Event("focus"));t.mock.timers.tick(4999);assert.equal(requests,1);t.mock.timers.tick(1);await settled(mounted.model);assert.equal(requests,2);
+  window.dispatchEvent(new window.Event("offline"));t.mock.timers.tick(120000);assert.equal(requests,2);window.dispatchEvent(new window.Event("online"));t.mock.timers.tick(250);await settled(mounted.model);assert.equal(requests,3);
+  mounted.dispose();t.mock.timers.tick(120000);window.dispatchEvent(new window.Event("focus"));assert.equal(requests,3);
+ }finally{mounted.dispose();}
+});
+test("language changes preserve recovery timers and manual checks replace scheduled work",async t=>{
+ t.mock.timers.enable({apis:["Date","setTimeout"],now:new Date("2026-10-11T15:00:00Z")});t.mock.method(Math,"random",()=>0);
+ const {document}=parseHTML('<html><body><main></main></body></html>');const container=document.querySelector("main") as unknown as HTMLElement;let requests=0,recovered=false;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async()=>{requests++;return response(recovered?fallback():internalRetry());});const mounted=mountConnectionAssistance(container,client,{retry:{maxAttempts:1,delayMs:0}});
+ try{
+  await settled(mounted.model);t.mock.timers.tick(3000);mounted.model.setLanguage("ar");t.mock.timers.tick(2000);await settled(mounted.model);assert.equal(requests,2);assert.equal(mounted.model.state().language,"ar");
+  recovered=true;await mounted.model.check();assert.equal(requests,3);assert.equal(mounted.model.state().phase,"choosing");t.mock.timers.tick(20000);assert.equal(requests,3);
+ }finally{mounted.dispose();}
+});
+test("authentication failure and account reset stop previously scheduled internal recovery",async t=>{
+ t.mock.timers.enable({apis:["Date","setTimeout"],now:new Date("2026-10-11T15:00:00Z")});t.mock.method(Math,"random",()=>0);
+ const {document}=parseHTML('<html><body><main></main></body></html>');const container=document.querySelector("main") as unknown as HTMLElement;let requests=0,unauthorized=false;
+ const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>"token",async()=>{requests++;return unauthorized?new Response("{}",{status:401,headers:{"content-type":"application/json"}}):response(internalRetry());});const mounted=mountConnectionAssistance(container,client,{retry:{maxAttempts:1,delayMs:0}});
+ try{
+  await settled(mounted.model);mounted.model.resetAuthentication();t.mock.timers.tick(60000);assert.equal(requests,1);
+  await mounted.model.check();unauthorized=true;t.mock.timers.tick(5000);await settled(mounted.model);assert.equal(requests,3);assert.equal(mounted.model.state().result,undefined);t.mock.timers.tick(120000);assert.equal(requests,3);
+ }finally{mounted.dispose();}
+});

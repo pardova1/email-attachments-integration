@@ -1,6 +1,6 @@
 import type {ConnectionCheckClient,ConnectionCheckInput,ConnectionClientResult} from "./connection-check-client.js";
 import {observeConnectionFormLifecycle} from "./connection-form-lifecycle.js";
-import {ConnectionFormModel,type ConnectionFormRetryPolicy} from "./connection-form-model.js";
+import {ConnectionFormModel,type ConnectionFormState,type ConnectionFormRetryPolicy} from "./connection-form-model.js";
 import {CONNECTION_TRANSLATIONS,connectionDifficultyNotice,selectPreferredConnectionLanguage,type ConnectionTranslation} from "../email/connection-languages.js";
 
 // Embed in an authenticated app. Values become text nodes, never HTML; the
@@ -25,7 +25,29 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
   const expiredReadiness=state.phase==="assessed"&&result?.status==="assessed"&&result.validation.assessment.status==="unverified"&&result.validation.assessment.reasons.includes("EVIDENCE_EXPIRED");
   if(state.phase==="choosing"&&state.expired||expiredReadiness)checkConnection();
  };
+ // Continue internal recovery after the model's quick retry batch finishes.
+ // Back off between batches, with jitter to spread requests across customers.
+ let recoveryTimer:ReturnType<typeof setTimeout>|undefined,recoveryDelay=5000;
+ const cancelRecovery=()=>{if(recoveryTimer!==undefined)clearTimeout(recoveryTimer);recoveryTimer=undefined;};
+ const needsRecovery=(state:ConnectionFormState)=>state.phase==="unavailable"&&state.result?.status==="pending-internal-retry"&&state.result.reason==="AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE";
+ const reconcileRecovery=(state:ConnectionFormState)=>{
+  if(disposed){cancelRecovery();return;}
+  if(state.phase==="checking"||state.phase==="submitting"){cancelRecovery();return;}
+  if(!needsRecovery(state)){cancelRecovery();recoveryDelay=5000;return;}
+  if(offline||document.visibilityState==="hidden"){cancelRecovery();return;}
+  if(recoveryTimer!==undefined)return;
+  const delay=Math.min(60_000,Math.round(recoveryDelay*(1+Math.random()*0.2)));
+  recoveryTimer=setTimeout(()=>{
+   recoveryTimer=undefined;
+   if(disposed||offline||document.visibilityState==="hidden"||!needsRecovery(model.state()))return;
+   recoveryDelay=Math.min(60_000,recoveryDelay*2);
+   checkConnection();
+  },delay);
+ };
+ const pauseHiddenRecovery=()=>{if(document.visibilityState==="hidden")cancelRecovery();};
+ document.addEventListener("visibilitychange",pauseHiddenRecovery);
  const unsubscribe=model.subscribe(state=>{
+  reconcileRecovery(state);
   const active=document.activeElement;
   const focusName=active&&container.contains(active)?active.getAttribute("name"):undefined;
   if(expiryTimer)clearTimeout(expiryTimer);
@@ -59,5 +81,5 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
  });
  const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,refreshCurrent,online=>{offline=online===false;model.invalidateConnection();},checkConnection);
  checkConnection();
- return {model,dispose(){if(disposed)return;disposed=true;stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
+ return {model,dispose(){if(disposed)return;disposed=true;cancelRecovery();document.removeEventListener("visibilitychange",pauseHiddenRecovery);stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
 }
