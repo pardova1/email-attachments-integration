@@ -70,3 +70,20 @@ test("discovery setup cannot change the request snapshot later used for customer
  const factory=createConnectionCoordinatorFactory({fallback:fallback(),catalog:{async toolsFor(){return {};}},async discoveryFor(){await gate;return {async discover(){throw new Error("UNUSED");}};},async catalogFor(_customer,input){reference=input.requestReference;client=input.softwareHints?.client;return {async toolsFor(){return {};}};}});
  const input=context("original"),customer={userId:"sender-a"},pending=factory(customer,input,new AbortController().signal);input.requestReference="changed";input.softwareHints!.client="changed";customer.userId="sender-b";release();const coordinator=await pending;coordinator.assertCustomerScope("sender-a");assert.equal(reference,"original");assert.equal(client,"browser");
 });
+test("hanging discovery and customer catalog setup share a bounded cancellation deadline",async()=>{
+ for(const stage of ["discovery","catalog"]){
+  let adapterSignal:AbortSignal|undefined,catalogCalls=0;
+  const factory=createConnectionCoordinatorFactory({fallback:fallback(),catalog:{async toolsFor(){throw new Error("MUST_NOT_RUN");}},internalTimeoutMs:10,async discoveryFor(_customer,_context,signal){if(stage==="discovery"){adapterSignal=signal;return new Promise(()=>{});}return {async discover(){throw new Error("MUST_NOT_RUN");}};},async catalogFor(_customer,_context,signal){catalogCalls++;adapterSignal=signal;return new Promise(()=>{});}});
+  await assert.rejects(factory({userId:"sender-a"},context(stage),new AbortController().signal),/CONNECTION_COORDINATOR_SETUP_TIMEOUT/);assert.equal(adapterSignal?.aborted,true);assert.equal(catalogCalls,stage==="catalog"?1:0);
+ }
+});
+test("caller cancellation releases setup even when discovery ignores its signal",async()=>{
+ const controller=new AbortController();let finish!:(value:{discover:()=>Promise<never>})=>void,catalogCalls=0,adapterSignal:AbortSignal|undefined;
+ const factory=createConnectionCoordinatorFactory({fallback:fallback(),catalog:{async toolsFor(){return {};}},async discoveryFor(_customer,_context,signal){adapterSignal=signal;return new Promise(resolve=>{finish=resolve;});},async catalogFor(){catalogCalls++;return {async toolsFor(){return {};}};}});
+ const running=factory({userId:"sender-a"},context("cancelled"),controller.signal);controller.abort();await assert.rejects(running,{name:"AbortError"});assert.equal(adapterSignal?.aborted,true);finish({async discover(){throw new Error("MUST_NOT_RUN");}});await new Promise(resolve=>setImmediate(resolve));assert.equal(catalogCalls,0);
+});
+test("late customer catalog rejection after timeout cannot publish a coordinator",async()=>{
+ let fail!:(error:Error)=>void,adapterSignal:AbortSignal|undefined;
+ const factory=createConnectionCoordinatorFactory({fallback:fallback(),internalTimeoutMs:10,catalog:{async toolsFor(){return {};}},async discoveryFor(){return {async discover(){throw new Error("MUST_NOT_RUN");}};},async catalogFor(_customer,_context,signal){adapterSignal=signal;return new Promise((_resolve,reject)=>{fail=reject;});}});
+ await assert.rejects(factory({userId:"sender-a"},context("late"),new AbortController().signal),/CONNECTION_COORDINATOR_SETUP_TIMEOUT/);assert.equal(adapterSignal?.aborted,true);fail(new Error("LATE_PRIVATE_ADAPTER_FAILURE"));await new Promise(resolve=>setImmediate(resolve));
+});
