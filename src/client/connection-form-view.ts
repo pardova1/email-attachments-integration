@@ -30,7 +30,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
    for(const field of result.form.fields){
     const label=make("label",text.fields[field.key]),select=make("select");select.name=field.key;select.required=true;label.append(select);
     const empty=make("option",text.choose);empty.value="";select.append(empty);
-    for(const choice of field.options){const names=field.key==="country"?new Intl.DisplayNames([state.language],{type:"region"}):undefined;const option=make("option",names?.of(choice.value)??choice.label);option.value=choice.id;option.disabled=!model.optionAvailable(choice.requires);option.hidden=option.disabled;option.selected=state.selections[field.key]===choice.id;select.append(option);}
+    for(const choice of field.options){const names=field.key==="country"?new Intl.DisplayNames([state.language],{type:"region"}):undefined;const option=make("option",names?.of(choice.value)??choice.label);option.value=choice.id;option.disabled=!model.choiceAvailable(field.key,choice.id);option.hidden=option.disabled;option.selected=state.selections[field.key]===choice.id;select.append(option);}
     select.addEventListener("change",()=>model.choose(field.key,select.value));form.append(label);
    }
    const submit=make("button",text.submit);submit.type="submit";submit.disabled=!state.canSubmit;form.append(submit);form.addEventListener("submit",event=>{event.preventDefault();if(model.state().canSubmit)void model.submit(options.software);else void model.check(options.software);});container.append(form,make("p",text.note));
