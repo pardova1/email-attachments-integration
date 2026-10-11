@@ -23,12 +23,28 @@ export function createConnectionCoordinatorFactory(options:ConnectionCoordinator
  return async(customer,context,signal)=>{
   signal.throwIfAborted();requireConnectionCustomerScope(customer.userId);
   const scope=customer.userId,requestContext=structuredClone(context);
-  const discovery=await discoveryFor({userId:scope},structuredClone(requestContext),signal);
-  signal.throwIfAborted();
-  if(!discovery||typeof discovery.discover!=="function")throw new Error("CONNECTION_DISCOVERY_NOT_CONFIGURED");
-  const selectedCatalog=catalogFor?await catalogFor({userId:scope},structuredClone(requestContext),signal):catalog;
-  signal.throwIfAborted();
-  if(!selectedCatalog||typeof selectedCatalog.toolsFor!=="function")throw new Error("CONNECTION_CATALOG_NOT_CONFIGURED");
-  return new AutomaticConnectionCoordinator(discovery,selectedCatalog,new GlobalConnectionReadinessAgent(),clock,timeout,fallback,scope);
+  return withConnectionSetupDeadline(async setupSignal=>{
+   const discovery=await discoveryFor({userId:scope},structuredClone(requestContext),setupSignal);
+   setupSignal.throwIfAborted();
+   if(!discovery||typeof discovery.discover!=="function")throw new Error("CONNECTION_DISCOVERY_NOT_CONFIGURED");
+   const selectedCatalog=catalogFor?await catalogFor({userId:scope},structuredClone(requestContext),setupSignal):catalog;
+   setupSignal.throwIfAborted();
+   if(!selectedCatalog||typeof selectedCatalog.toolsFor!=="function")throw new Error("CONNECTION_CATALOG_NOT_CONFIGURED");
+   return new AutomaticConnectionCoordinator(discovery,selectedCatalog,new GlobalConnectionReadinessAgent(),clock,timeout,fallback,scope);
+  },signal,timeout);
  };
+}
+
+
+async function withConnectionSetupDeadline<T>(operation:(signal:AbortSignal)=>Promise<T>,external:AbortSignal,timeoutMs:number):Promise<T>{
+ external.throwIfAborted();
+ const controller=new AbortController(),signal=AbortSignal.any([external,controller.signal]);
+ let aborted!:()=>void;
+ const cancelled=new Promise<never>((_resolve,reject)=>{
+  aborted=()=>reject(signal.reason);
+  signal.addEventListener("abort",aborted,{once:true});
+ });
+ const timer=setTimeout(()=>controller.abort(new Error("CONNECTION_COORDINATOR_SETUP_TIMEOUT")),timeoutMs);
+ try{return await Promise.race([operation(signal),cancelled]);}
+ finally{clearTimeout(timer);signal.removeEventListener("abort",aborted);}
 }
