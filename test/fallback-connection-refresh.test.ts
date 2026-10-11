@@ -50,3 +50,9 @@ test("customer selections retain the refreshed automatic observation deadline",a
  const coordinator=new AutomaticConnectionCoordinator({async discover(){return {environment:known,observedAt:new Date(now.getTime()-299_000).toISOString(),sourceReference:"synthetic-old-observation"};}},{async toolsFor(){return Object.fromEntries(REQUIRED_CONNECTION_CHECKS.map(check=>[check,{id:check,async run(){return {outcome:"passed" as const,testReference:"synthetic",...(check==="recipient-download"?{recipientNeedsInstallation:false}:{})};}}]));}},new GlobalConnectionReadinessAgent(),()=>now,10_000,fallback,"sender-a");
  const first=await form(coordinator),result=await coordinator.submitFallback(first.id,{provider:"mail"});if(result.status!=="assessed")throw new Error("EXPECTED_ASSESSMENT");assert.equal(result.validation.assessment.status,"verified");assert.equal(result.validation.assessment.expiresAt,new Date(now.getTime()+1000).toISOString());
 });
+test("fallback form expires with the automatic details it retains",async()=>{
+ let current=now,discoveries=0;const fallback=new CustomerConnectionFallback({provider:[{id:"mail",label:"Mail",value:"mail"}]},()=>current);
+ const coordinator=new AutomaticConnectionCoordinator({async discover(){discoveries++;return {environment:known,observedAt:new Date(now.getTime()-299_000).toISOString(),sourceReference:"synthetic-observation"};}},{async toolsFor(){throw new Error("NO_PROBES");}},new GlobalConnectionReadinessAgent(),()=>current,10_000,fallback,"sender-a");
+ const first=await form(coordinator);assert.equal(first.expiresAt,new Date(now.getTime()+1000).toISOString());current=new Date(first.expiresAt);await assert.rejects(coordinator.submitFallback(first.id,{provider:"mail"}),/CONNECTION_FORM_EXPIRED/);assert.equal(discoveries,1);
+ assert.equal((await coordinator.check()).status,"pending-internal-retry");
+});

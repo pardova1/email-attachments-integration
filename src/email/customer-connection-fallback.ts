@@ -43,10 +43,16 @@ export class CustomerConnectionFallback {
     this.choices=snapshotConnectionChoices(this.choiceSource?this.choiceSource({}):choices as ConnectionChoiceCatalog);
   }
 
-  prepare(customerScope:string,known:Partial<ConnectionEnvironment>,missing:ConnectionField[]):ConnectionFallbackForm|undefined {
+  prepare(customerScope:string,known:Partial<ConnectionEnvironment>,missing:ConnectionField[],maximumExpiresAt?:string):ConnectionFallbackForm|undefined {
     requireConnectionCustomerScope(customerScope);
     const now=this.clock();
     if(!Number.isFinite(now.getTime()))throw new Error("INVALID_CONNECTION_FORM_TIME");
+    let deadline=now.getTime()+15*60*1000;
+    if(maximumExpiresAt!==undefined){
+      if(typeof maximumExpiresAt!=="string"||!Number.isFinite(Date.parse(maximumExpiresAt)))throw new Error("INVALID_CONNECTION_FORM_DEADLINE");
+      deadline=Math.min(deadline,Date.parse(maximumExpiresAt));
+      if(deadline<=now.getTime())return undefined;
+    }
     const automatic=Object.fromEntries(CONNECTION_FIELDS.filter(field=>!missing.includes(field)&&known[field]!==undefined).map(field=>[field,known[field]]));
     const choices=this.choiceSource?snapshotConnectionChoices(this.choiceSource(automatic)):this.choices;
     const keys=CONNECTION_FIELDS.filter(key=>missing.includes(key));
@@ -73,7 +79,6 @@ export class CustomerConnectionFallback {
     for(const [id,pending] of this.forms)if(Date.parse(pending.form.expiresAt)<=now.getTime())this.forms.delete(id);
     // Do not evict a live customer's form to make room for another request.
     if(this.forms.size>=1000)throw new Error("CONNECTION_FORM_CAPACITY_REACHED");
-    let deadline=now.getTime()+15*60*1000;
     for(const offered of options.values())for(const option of offered)if(option.expiresAt!==undefined)deadline=Math.min(deadline,Date.parse(option.expiresAt));
     const form={id:randomUUID(),message:"We couldn't identify some connection details automatically. Please choose the missing details below so we can check your connection.",expiresAt:new Date(deadline).toISOString(),fields:keys.map(key=>({key,label:labels[key],options:structuredClone(options.get(key)!)}))};
     this.forms.set(form.id,{form:structuredClone(form),known:structuredClone(known),customerScope});
