@@ -61,3 +61,10 @@ test("HTTP source failure stays private and recovery to unknown details offers o
   failed=false;const recovered=await post(`${url}/check`,{software,language:"ar-KW"}),form=await recovered.json();assert.equal(recovered.status,200);assert.equal(form.status,"customer-input-required");assert.deepEqual(form.form.fields.map((field:{key:string})=>field.key),["provider"]);
  });
 });
+
+test("HTTP discovery recovers a temporary provider failure in the same request before probing",async()=>{
+ const configured=configuration();let attempts=0;configured.observations.provider=async()=>{attempts++;if(attempts===1)throw new Error("TEMPORARY_PROVIDER_ERROR");return observed({provider:"gmail"});};
+ await withServer({authenticator,observations:{...configured.observations,sourceRetry:{delayMs:0}}},async url=>{
+  const response=await post(`${url}/check`,{software}),result=await response.json();assert.equal(response.status,200);assert.equal(result.status,"assessed");assert.equal(result.validation.assessment.status,"verified");assert.equal(result.retryRequired,false);assert.equal(attempts,2);assert.deepEqual(configured.runs,[...REQUIRED_CONNECTION_CHECKS]);
+ });
+});

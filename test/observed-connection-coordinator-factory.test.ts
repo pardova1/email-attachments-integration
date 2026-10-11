@@ -26,4 +26,5 @@ test("invalid source policies fail at setup",()=>{
  const options={fallback:new CustomerConnectionFallback({}),catalog:{async toolsFor(){return {};}},async network(){return observation({},"test");},async provider(){return observation({},"test");}};
  assert.throws(()=>createObservedConnectionCoordinatorFactory({...options,sourceTimeoutMs:0}),/INVALID_DISCOVERY_SOURCES/);
  assert.throws(()=>createObservedConnectionCoordinatorFactory({...options,provider:undefined as never}),/INVALID_DISCOVERY_SOURCES/);
+ assert.throws(()=>createObservedConnectionCoordinatorFactory({...options,sourceRetry:{maxAttempts:4}}),/INVALID_DISCOVERY_RETRY_POLICY/);
 });
