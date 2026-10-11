@@ -5,7 +5,7 @@ import type { ConnectionEnvironment } from "./global-connection-readiness-agent.
 
 export const CONNECTION_FIELDS = ["country", "network", "provider", "client", "platform", "softwareVersion"] as const;
 export type ConnectionField = typeof CONNECTION_FIELDS[number];
-export interface ConnectionChoice { id: string; label: string; value: string; requires?: Partial<ConnectionEnvironment>; }
+export interface ConnectionChoice { id: string; label: string; value: string; expiresAt?: string; requires?: Partial<ConnectionEnvironment>; }
 export interface ConnectionFallbackForm {
   id: string;
   message: string;
@@ -21,6 +21,7 @@ function snapshotConnectionChoices(choices:ConnectionChoiceCatalog){
       const ids=new Set<string>();
       for(const option of choices[key]??[]){
         if(!option.id.trim()||!option.label.trim()||!option.value.trim()||ids.has(option.id)||key==="country"&&!/^[A-Z]{2}$/.test(option.value)) throw new Error("INVALID_CONNECTION_CHOICE_CATALOG");
+        if(option.expiresAt!==undefined&&(typeof option.expiresAt!=="string"||!Number.isFinite(Date.parse(option.expiresAt))))throw new Error("INVALID_CONNECTION_CHOICE_CATALOG");
         for(const [dependency,value] of Object.entries(option.requires??{})) {
           // Dependencies only point to earlier fields, keeping dropdown updates acyclic.
           if(CONNECTION_FIELDS.indexOf(dependency as ConnectionField)<0||CONNECTION_FIELDS.indexOf(dependency as ConnectionField)>=CONNECTION_FIELDS.indexOf(key)||typeof value!=="string"||!value.trim())throw new Error("INVALID_CONNECTION_CHOICE_CATALOG");
@@ -44,12 +45,15 @@ export class CustomerConnectionFallback {
 
   prepare(customerScope:string,known:Partial<ConnectionEnvironment>,missing:ConnectionField[]):ConnectionFallbackForm|undefined {
     requireConnectionCustomerScope(customerScope);
+    const now=this.clock();
+    if(!Number.isFinite(now.getTime()))throw new Error("INVALID_CONNECTION_FORM_TIME");
     const automatic=Object.fromEntries(CONNECTION_FIELDS.filter(field=>!missing.includes(field)&&known[field]!==undefined).map(field=>[field,known[field]]));
     const choices=this.choiceSource?snapshotConnectionChoices(this.choiceSource(automatic)):this.choices;
     const keys=CONNECTION_FIELDS.filter(key=>missing.includes(key));
     if(missing.some(key=>!CONNECTION_FIELDS.includes(key)))return undefined;
     if(!keys.length||keys.some(key=>!CONNECTION_FIELDS.includes(key)||!choices[key]?.length))return undefined;
     const options=new Map(keys.map(key=>[key,(choices[key]??[]).flatMap(option=>{
+      if(option.expiresAt!==undefined&&Date.parse(option.expiresAt)<=now.getTime())return [];
       const remaining:Partial<ConnectionEnvironment>={};
       for(const [dependency,value] of Object.entries(option.requires??{})) {
         const field=dependency as ConnectionField;
@@ -66,12 +70,12 @@ export class CustomerConnectionFallback {
       options.set(key,reachable);
     }
     if(!this.pruneCompleteCombinations(keys,options))return undefined;
-    const now=this.clock();
-    if(!Number.isFinite(now.getTime()))throw new Error("INVALID_CONNECTION_FORM_TIME");
     for(const [id,pending] of this.forms)if(Date.parse(pending.form.expiresAt)<=now.getTime())this.forms.delete(id);
     // Do not evict a live customer's form to make room for another request.
     if(this.forms.size>=1000)throw new Error("CONNECTION_FORM_CAPACITY_REACHED");
-    const form={id:randomUUID(),message:"We couldn't identify some connection details automatically. Please choose the missing details below so we can check your connection.",expiresAt:new Date(now.getTime()+15*60*1000).toISOString(),fields:keys.map(key=>({key,label:labels[key],options:structuredClone(options.get(key)!)}))};
+    let deadline=now.getTime()+15*60*1000;
+    for(const offered of options.values())for(const option of offered)if(option.expiresAt!==undefined)deadline=Math.min(deadline,Date.parse(option.expiresAt));
+    const form={id:randomUUID(),message:"We couldn't identify some connection details automatically. Please choose the missing details below so we can check your connection.",expiresAt:new Date(deadline).toISOString(),fields:keys.map(key=>({key,label:labels[key],options:structuredClone(options.get(key)!)}))};
     this.forms.set(form.id,{form:structuredClone(form),known:structuredClone(known),customerScope});
     return form;
   }
