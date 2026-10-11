@@ -51,3 +51,22 @@ test("connection changes discard fallback choices tied to the previous network",
  let submissions=0;const model=new ConnectionFormModel({async check(){return result;},async submit(){submissions++;return verified();}},"fa",()=>new Date("2026-10-10T12:00:30Z"));await model.check();model.choose("country","no");assert.equal(model.state().canSubmit,true);
  model.invalidateConnection();assert.deepEqual(model.state().selections,{});assert.equal(model.state().result,undefined);await assert.rejects(model.submit(),/CONNECTION_FORM_NOT_READY/);assert.equal(submissions,0);
 });
+test("online event bursts invalidate immediately and coalesce automatic recovery",async()=>{
+ const page=new Page(),window=new EventTarget();let invalidations=0,recoveries=0;
+ const stop=observeConnectionFormLifecycle(page,window,()=>{},()=>{invalidations++;},()=>{recoveries++;},5);
+ try{window.dispatchEvent(new Event("online"));window.dispatchEvent(new Event("online"));window.dispatchEvent(new Event("focus"));assert.equal(invalidations,2);assert.equal(recoveries,0);await new Promise(resolve=>setTimeout(resolve,15));assert.equal(recoveries,1);window.dispatchEvent(new Event("focus"));await new Promise(resolve=>setTimeout(resolve,15));assert.equal(recoveries,1);}finally{stop();}
+});
+test("hidden online recovery waits for visibility and still performs only one check",async()=>{
+ const page=new Page(),window=new EventTarget();let recoveries=0;page.visibilityState="hidden";
+ const stop=observeConnectionFormLifecycle(page,window,()=>{},()=>{},()=>{recoveries++;},5);
+ try{window.dispatchEvent(new Event("online"));await new Promise(resolve=>setTimeout(resolve,15));assert.equal(recoveries,0);page.visibilityState="visible";page.dispatchEvent(new Event("visibilitychange"));window.dispatchEvent(new Event("pageshow"));await new Promise(resolve=>setTimeout(resolve,15));assert.equal(recoveries,1);}finally{stop();}
+});
+test("offline and disposal cancel scheduled recovery",async()=>{
+ for(const action of ["offline","dispose"]){
+  const page=new Page(),window=new EventTarget();let recoveries=0;const stop=observeConnectionFormLifecycle(page,window,()=>{},()=>{},()=>{recoveries++;},5);
+  window.dispatchEvent(new Event("online"));if(action==="offline")window.dispatchEvent(new Event("offline"));else stop();await new Promise(resolve=>setTimeout(resolve,15));assert.equal(recoveries,0);stop();
+ }
+});
+test("recovery delay is bounded before registering listeners",()=>{
+ for(const delay of [-1,1001,1.5])assert.throws(()=>observeConnectionFormLifecycle(new Page(),new EventTarget(),()=>{},()=>{},()=>{},delay),/INVALID_CONNECTION_RECOVERY_DELAY/);
+});
