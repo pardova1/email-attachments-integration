@@ -141,3 +141,38 @@ test("timeouts and setup failures release concurrency slots",async()=>{
 test("invalid concurrency policies are rejected when the router is mounted",()=>{
  for(const concurrency of [{perCustomer:0},{perCustomer:11},{perCustomer:1.5},{total:0},{total:1001},{perCustomer:2,total:1}])assert.throws(()=>createConnectionCheckRouter({authenticator,concurrency}),/INVALID_CONNECTION_CONCURRENCY/);
 });
+
+
+test("temporary setup failures recover through the browser retry flow without customer settings",async()=>{
+ const {ConnectionCheckClient}=await import("../src/client/connection-check-client.js");
+ const {ConnectionFormModel}=await import("../src/client/connection-form-model.js");
+ let attempts=0,tokens=0;
+ await withServer({authenticator,async coordinatorFor(customer){attempts++;if(attempts===1)throw new Error("PRIVATE_SETUP_FAILURE");return capacityCoordinator(customer);}},async url=>{
+  const responses:unknown[]=[];
+  const client=new ConnectionCheckClient("https://app.example/v1/connection",async()=>{tokens++;return "sender-a";},async(target,init)=>{
+   const response=await fetch(`${url}/${String(target).split("/").at(-1)}`,init);responses.push(await response.clone().json());return response;
+  });
+  const model=new ConnectionFormModel(client,"fa",undefined,undefined,{maxAttempts:2,delayMs:0});
+  const phases:string[]=[];model.subscribe(state=>phases.push(state.phase));
+  try{
+   await model.check();assert.equal(attempts,2);assert.equal(tokens,2);assert.equal(model.state().phase,"assessed");
+   assert.deepEqual(responses[0],{status:"pending-internal-retry",retryRequired:true,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:"fa"});
+   assert.equal(phases.includes("choosing"),false);assert.equal(phases.includes("unavailable"),false);
+  }finally{model.dispose();}
+ });
+});
+
+test("setup deadline returns localized internal retry and releases request capacity",async()=>{
+ const {createConnectionCoordinatorFactory}=await import("../src/config/connection-coordinator-factory.js");
+ let calls=0,setupSignal:AbortSignal|undefined;
+ const coordinatorFor=createConnectionCoordinatorFactory({internalTimeoutMs:10,catalog:{async toolsFor(){return {};}},fallback:new CustomerConnectionFallback({}),async discoveryFor(_customer,_context,signal){
+  calls++;setupSignal=signal;if(calls===1)return new Promise(()=>{});
+  return {async discover(){return {environment:{...known,country:"KW"},observedAt:new Date().toISOString(),sourceReference:"synthetic"};}};
+ }});
+ await withServer({authenticator,coordinatorFor},async url=>{
+  const response=await post(`${url}/selections`,{formId:"11111111-1111-4111-8111-111111111111",selections:{}},"sender-a",{"accept-language":"ar-KW"});
+  assert.equal(response.status,503);assert.equal(response.headers.get("content-language"),"ar");assert.equal(response.headers.get("cache-control"),"no-store");
+  assert.deepEqual(await response.json(),{status:"pending-internal-retry",retryRequired:true,reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE",language:"ar"});assert.equal(setupSignal?.aborted,true);
+  const recovered=await post(`${url}/check`,{});assert.equal(recovered.status,200);assert.equal((await recovered.json()).status,"assessed");assert.equal(calls,2);
+ });
+});
