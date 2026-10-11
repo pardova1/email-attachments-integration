@@ -222,3 +222,9 @@ Worldwide support remains a release goal, not a completed certification. Country
 The authenticated connection router now accepts the same `translations` catalog as the browser form/session wrapper. It validates and snapshots that catalog when mounted. Fallback prompts, field/country labels, advertised language choices, and response language tags use the configured packs. Regional language requests normalize against that catalog. Unsupported languages fall back to its default without modifying country/provider selections or claiming readiness.
 
 Deployments must supply the same reviewed catalog to the router and browser host. The bundled defaults remain 38 packs. This extends connection-API localization; application-wide screens, email communications, live provider wiring, and worldwide validation remain pending.
+
+### API language preferences
+
+When a JSON connection request omits `language`, the API selects the first supported language from its bounded `Accept-Language` preferences, ordered by quality weight and preserving header order for ties. Invalid ranges, wildcard ranges, and zero-quality preferences are skipped. Explicit JSON language choices take precedence. Responses with language metadata also set `Content-Language`; error codes remain generic. The parser limits header length and the number of inspected ranges.
+
+Language negotiation changes presentation only. Tests confirm that preferred languages do not change the offered country values or bypass authenticated connection checks. Matching server/browser catalogs and complete reviewed translations are still needed for production worldwide language coverage.
