@@ -70,3 +70,7 @@ test("offline and disposal cancel scheduled recovery",async()=>{
 test("recovery delay is bounded before registering listeners",()=>{
  for(const delay of [-1,1001,1.5])assert.throws(()=>observeConnectionFormLifecycle(new Page(),new EventTarget(),()=>{},()=>{},()=>{},delay),/INVALID_CONNECTION_RECOVERY_DELAY/);
 });
+test("network invalidation reports the observed offline or online state",()=>{
+ const page=new Page(),window=new EventTarget(),states:(boolean|undefined)[]=[];const stop=observeConnectionFormLifecycle(page,window,()=>{},online=>states.push(online));
+ try{window.dispatchEvent(new Event("offline"));window.dispatchEvent(new Event("online"));assert.deepEqual(states,[false,true]);}finally{stop();}
+});

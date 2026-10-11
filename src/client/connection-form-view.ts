@@ -13,14 +13,17 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
   catch{language="en";}
  }
  const model=new ConnectionFormModel(client,language,undefined,translations,options.retry);
+ let offline=false;
+ try{offline=document.defaultView?.navigator.onLine===false;}catch{ /* Unknown browser state still requires normal probes. */ }
+ const checkConnection=()=>{if(disposed)return;if(offline)model.invalidateConnection();else void model.check(options.software);};
  let expiryTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,assessmentDelivered:string|undefined=undefined;
  const refreshCurrent=()=>{
   if(disposed)return;
   model.refresh();
-  if(disposed||document.visibilityState==="hidden")return;
+  if(disposed||offline||document.visibilityState==="hidden")return;
   const state=model.state(),result=state.result;
   const expiredReadiness=state.phase==="assessed"&&result?.status==="assessed"&&result.validation.assessment.status==="unverified"&&result.validation.assessment.reasons.includes("EVIDENCE_EXPIRED");
-  if(state.phase==="choosing"&&state.expired||expiredReadiness)void model.check(options.software);
+  if(state.phase==="choosing"&&state.expired||expiredReadiness)checkConnection();
  };
  const unsubscribe=model.subscribe(state=>{
   const active=document.activeElement;
@@ -41,11 +44,11 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
     for(const choice of field.options){const names=field.key==="country"?new Intl.DisplayNames([state.language],{type:"region"}):undefined;const option=make("option",names?.of(choice.value)??choice.label);option.value=choice.id;option.disabled=!model.choiceAvailable(field.key,choice.id);option.hidden=option.disabled;option.selected=state.selections[field.key]===choice.id;select.append(option);}
     select.addEventListener("change",()=>model.choose(field.key,select.value));form.append(label);
    }
-   const submit=make("button",text.submit);submit.type="submit";submit.disabled=!state.canSubmit;form.append(submit);form.addEventListener("submit",event=>{event.preventDefault();if(model.state().canSubmit)void model.submit(options.software);else void model.check(options.software);});container.append(form,make("p",text.note));
+   const submit=make("button",text.submit);submit.type="submit";submit.disabled=!state.canSubmit;form.append(submit);form.addEventListener("submit",event=>{event.preventDefault();if(model.state().canSubmit)void model.submit(options.software);else checkConnection();});container.append(form,make("p",text.note));
    expiryTimer=setTimeout(refreshCurrent,Math.max(1,Math.min(Date.parse(result.form.expiresAt)-Date.now(),2_147_483_647)));
   }else{
    if(state.phase==="unavailable"||state.phase==="assessed"&&result?.retryRequired){const notice=make("p",connectionDifficultyNotice(state.language,translations));notice.setAttribute("role","alert");container.append(notice);}
-   const check=make("button",text.submit);check.type="button";check.disabled=state.phase==="checking"||state.phase==="submitting";check.addEventListener("click",()=>void model.check(options.software));container.append(check);
+   const check=make("button",text.submit);check.type="button";check.disabled=offline||state.phase==="checking"||state.phase==="submitting";check.addEventListener("click",checkConnection);container.append(check);
    if(state.phase==="assessed"&&result?.status==="assessed"){
     const signature=JSON.stringify(result);
     if(assessmentDelivered!==signature){assessmentDelivered=signature;options.onAssessed?.(result);}
@@ -54,7 +57,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
   }
   if(focusName&&/^[a-zA-Z-]+$/.test(focusName))container.querySelector<HTMLElement>(`[name="${focusName}"]`)?.focus();
  });
- const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,refreshCurrent,()=>model.invalidateConnection(),()=>{void model.check(options.software);});
- void model.check(options.software);
+ const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,refreshCurrent,online=>{offline=online===false;model.invalidateConnection();},checkConnection);
+ checkConnection();
  return {model,dispose(){if(disposed)return;disposed=true;stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
 }
