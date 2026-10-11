@@ -54,6 +54,7 @@ export class CustomerConnectionFallback {
       if(!reachable.length)return undefined;
       options.set(key,reachable);
     }
+    if(!this.pruneCompleteCombinations(keys,options))return undefined;
     const now=this.clock();
     if(!Number.isFinite(now.getTime()))throw new Error("INVALID_CONNECTION_FORM_TIME");
     for(const [id,pending] of this.forms)if(Date.parse(pending.form.expiresAt)<=now.getTime())this.forms.delete(id);
@@ -62,6 +63,32 @@ export class CustomerConnectionFallback {
     const form={id:randomUUID(),message:"We couldn't identify some connection details automatically. Please choose the missing details below so we can check your connection.",expiresAt:new Date(now.getTime()+15*60*1000).toISOString(),fields:keys.map(key=>({key,label:labels[key],options:structuredClone(options.get(key)!)}))};
     this.forms.set(form.id,{form:structuredClone(form),known:structuredClone(known),customerScope});
     return form;
+  }
+
+  private pruneCompleteCombinations(keys:ConnectionField[],options:Map<ConnectionField,ConnectionChoice[]>) {
+    const reachable=new Map(keys.map(key=>[key,new Set<string>()]));
+    // Keep only earlier values referenced by remaining choices in each memo
+    // key. Independent dropdowns do not create a Cartesian-product search.
+    const needed=keys.map((_key,index)=>new Set(keys.slice(index).flatMap(key=>(options.get(key)??[]).flatMap(option=>Object.keys(option.requires??{}) as ConnectionField[]))));
+    const memo=new Map<string,boolean>();let work=0,states=0;
+    const visit=(index:number,selected:Partial<ConnectionEnvironment>):boolean=>{
+      if(index===keys.length)return true;
+      const identity=JSON.stringify([index,...keys.slice(0,index).filter(key=>needed[index].has(key)).map(key=>selected[key])]);
+      if(memo.has(identity))return memo.get(identity)!;
+      if(++states>10_000)throw new Error("CONNECTION_CHOICE_SEARCH_LIMIT");
+      const key=keys[index];let complete=false;
+      for(const option of options.get(key)??[]){
+        if(++work>50_000)throw new Error("CONNECTION_CHOICE_SEARCH_LIMIT");
+        if(Object.entries(option.requires??{}).some(([dependency,value])=>selected[dependency as ConnectionField]!==value))continue;
+        if(visit(index+1,{...selected,[key]:option.value})){reachable.get(key)!.add(option.id);complete=true;}
+      }
+      memo.set(identity,complete);return complete;
+    };
+    try{
+      if(!visit(0,{}))return false;
+      for(const key of keys)options.set(key,(options.get(key)??[]).filter(option=>reachable.get(key)!.has(option.id)));
+      return true;
+    }catch{return false;}
   }
 
   matchesCurrent(customerScope:string,id:string,selections:Partial<Record<ConnectionField,string>>,current:Partial<ConnectionEnvironment>):boolean {

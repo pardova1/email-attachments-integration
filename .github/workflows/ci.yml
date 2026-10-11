@@ -62,6 +62,7 @@ jobs:
           test/https-connection-probe.test.ts
           test/automatic-connection-coordinator.test.ts
           test/customer-connection-fallback.test.ts
+          test/connection-choice-combinations.test.ts
           test/exact-software-connection-catalog.test.ts
           test/connection-observation-discovery.test.ts
           test/connection-observation-retry.test.ts
