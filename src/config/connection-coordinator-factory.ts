@@ -6,6 +6,7 @@ import type {ConnectionCheckRouterOptions,ConnectionRequestContext} from "../htt
 export interface ConnectionCoordinatorFactoryOptions {
  discoveryFor:(customer:{userId:string},context:ConnectionRequestContext,signal:AbortSignal)=>Promise<ConnectionDiscoveryPort>;
  catalog:ConnectionToolCatalog;
+ catalogFor?:(customer:{userId:string},context:ConnectionRequestContext,signal:AbortSignal)=>Promise<ConnectionToolCatalog>;
  fallback:CustomerConnectionFallback;
  clock?:()=>Date;
  internalTimeoutMs?:number;
@@ -17,13 +18,17 @@ export interface ConnectionCoordinatorFactoryOptions {
 export function createConnectionCoordinatorFactory(options:ConnectionCoordinatorFactoryOptions):NonNullable<ConnectionCheckRouterOptions["coordinatorFor"]>{
  const clock=options.clock??(()=>new Date()),timeout=options.internalTimeoutMs??10_000;
  if(!Number.isInteger(timeout)||timeout<1||timeout>60_000)throw new Error("INVALID_AUTOMATIC_CONNECTION_POLICY");
- const discoveryFor=options.discoveryFor.bind(options),catalog=options.catalog,fallback=options.fallback;
+ if(options.catalogFor!==undefined&&typeof options.catalogFor!=="function")throw new Error("INVALID_CONNECTION_CATALOG_FACTORY");
+ const discoveryFor=options.discoveryFor.bind(options),catalog=options.catalog,catalogFor=options.catalogFor?.bind(options),fallback=options.fallback;
  return async(customer,context,signal)=>{
   signal.throwIfAborted();requireConnectionCustomerScope(customer.userId);
-  const scope=customer.userId;
-  const discovery=await discoveryFor({userId:scope},structuredClone(context),signal);
+  const scope=customer.userId,requestContext=structuredClone(context);
+  const discovery=await discoveryFor({userId:scope},structuredClone(requestContext),signal);
   signal.throwIfAborted();
   if(!discovery||typeof discovery.discover!=="function")throw new Error("CONNECTION_DISCOVERY_NOT_CONFIGURED");
-  return new AutomaticConnectionCoordinator(discovery,catalog,new GlobalConnectionReadinessAgent(),clock,timeout,fallback,scope);
+  const selectedCatalog=catalogFor?await catalogFor({userId:scope},structuredClone(requestContext),signal):catalog;
+  signal.throwIfAborted();
+  if(!selectedCatalog||typeof selectedCatalog.toolsFor!=="function")throw new Error("CONNECTION_CATALOG_NOT_CONFIGURED");
+  return new AutomaticConnectionCoordinator(discovery,selectedCatalog,new GlobalConnectionReadinessAgent(),clock,timeout,fallback,scope);
  };
 }

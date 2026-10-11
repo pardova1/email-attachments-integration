@@ -54,3 +54,19 @@ test("overlapping requests for the same environment keep independent evidence an
   assert.equal(earlier.validation.assessment.status,firstPassed?"verified":"not-ready");assert.equal(later.validation.assessment.status,firstPassed?"not-ready":"verified");assert.equal(earlier.validation.assessment.checkedAt,now.toISOString());assert.equal(later.validation.assessment.checkedAt,current.toISOString());
  }
 });
+test("request catalog selection gets isolated authenticated scope and context",async()=>{
+ const seen:{scope:string;reference:string}[]=[];let selected=0;
+ const factory=createConnectionCoordinatorFactory({fallback:fallback(),clock:()=>now,catalog:{async toolsFor(){throw new Error("GLOBAL_CATALOG_MUST_NOT_RUN");}},async discoveryFor(){return {async discover(){return {environment:{...known,country:"NO"},observedAt:now.toISOString(),sourceReference:"test"};}};},async catalogFor(customer,input,signal){signal.throwIfAborted();const scope=customer.userId;seen.push({scope,reference:input.requestReference});customer.userId="mutated";input.softwareHints!.client="mutated";return {async toolsFor(){assert.equal(scope,"sender-a");selected++;return {};}};}});
+ const customer={userId:"sender-a"},input=context("first"),coordinator=await factory(customer,input,new AbortController().signal);const result=await coordinator.check();assert.equal(result.status,"assessed");assert.equal(selected,1);assert.deepEqual(seen,[{scope:"sender-a",reference:"first"}]);assert.equal(customer.userId,"sender-a");assert.equal(input.softwareHints!.client,"browser");coordinator.assertCustomerScope("sender-a");
+});
+test("invalid or cancelled request catalogs never fall back to global tools",async()=>{
+ const controller=new AbortController(),options={fallback:fallback(),catalog:{async toolsFor(){throw new Error("MUST_NOT_RUN");}},async discoveryFor(){return {async discover(){throw new Error("MUST_NOT_RUN");}};}};
+ assert.throws(()=>createConnectionCoordinatorFactory({...options,catalogFor:123 as never}),/INVALID_CONNECTION_CATALOG_FACTORY/);
+ const invalid=createConnectionCoordinatorFactory({...options,async catalogFor(){return {} as never;}});await assert.rejects(invalid({userId:"sender-a"},context("first"),controller.signal),/CONNECTION_CATALOG_NOT_CONFIGURED/);
+ const cancelled=createConnectionCoordinatorFactory({...options,async catalogFor(){controller.abort();return options.catalog;}});await assert.rejects(cancelled({userId:"sender-a"},context("first"),controller.signal),{name:"AbortError"});
+});
+test("discovery setup cannot change the request snapshot later used for customer tools",async()=>{
+ let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});let reference:string|undefined,client:string|undefined;
+ const factory=createConnectionCoordinatorFactory({fallback:fallback(),catalog:{async toolsFor(){return {};}},async discoveryFor(){await gate;return {async discover(){throw new Error("UNUSED");}};},async catalogFor(_customer,input){reference=input.requestReference;client=input.softwareHints?.client;return {async toolsFor(){return {};}};}});
+ const input=context("original"),customer={userId:"sender-a"},pending=factory(customer,input,new AbortController().signal);input.requestReference="changed";input.softwareHints!.client="changed";customer.userId="sender-b";release();const coordinator=await pending;coordinator.assertCustomerScope("sender-a");assert.equal(reference,"original");assert.equal(client,"browser");
+});
