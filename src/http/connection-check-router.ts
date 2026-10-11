@@ -3,7 +3,7 @@ import {Router,type RequestHandler} from "express";
 import {z} from "zod";
 import {AutomaticConnectionCoordinator} from "../email/automatic-connection-coordinator.js";
 import {CONNECTION_FIELDS,requireConnectionCustomerScope} from "../email/customer-connection-fallback.js";
-import {CONNECTION_TRANSLATIONS,selectConnectionLanguage} from "../email/connection-languages.js";
+import {CONNECTION_TRANSLATIONS,selectConnectionLanguage,validateConnectionFormTranslations,type ConnectionTranslation} from "../email/connection-languages.js";
 import type {AuthenticatedSender} from "../security/supabase-sender-authenticator.js";
 
 export interface ConnectionRequestContext {
@@ -16,6 +16,7 @@ export interface ConnectionCheckRouterOptions {
  authenticator:{authenticate(authorization:string|undefined,signal?:AbortSignal):Promise<AuthenticatedSender>};
  coordinatorFor?:(customer:AuthenticatedSender,context:ConnectionRequestContext,signal:AbortSignal)=>Promise<AutomaticConnectionCoordinator>;
  allowedOrigins?:string[];
+ translations?:Record<string,ConnectionTranslation>;
  timeoutMs?:number;
 }
 const hint=z.string().trim().min(1).max(256).refine(value=>!/[\x00-\x1f\x7f*]/.test(value));
@@ -25,6 +26,7 @@ const selectionSchema=z.object({formId:z.uuid(),language,selections:z.object(Obj
 
 // Bearer-authenticated JSON API. Identity never comes from body/query/cookies.
 export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions) {
+ const translations=structuredClone(options.translations??CONNECTION_TRANSLATIONS);validateConnectionFormTranslations(translations);
  const router=Router(),timeoutMs=options.timeoutMs??30_000;
  if(!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>120_000)throw new Error("INVALID_CONNECTION_REQUEST_TIMEOUT");
  const origins=new Set((options.allowedOrigins??[]).map(origin=>{
@@ -64,11 +66,11 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
      throw cause;
     }
     controller.signal.throwIfAborted();
-    const selectedLanguage=selectConnectionLanguage(input.data.language??"en");
+    const selectedLanguage=selectConnectionLanguage(input.data.language??"en",translations);
     if(checked.status==="pending-internal-retry")return {httpStatus:503,body:{...checked,language:selectedLanguage}};
     if(checked.status!=="customer-input-required")return {httpStatus:200,body:{...checked,language:selectedLanguage}};
-    const text=CONNECTION_TRANSLATIONS[selectedLanguage],countryNames=new Intl.DisplayNames([selectedLanguage],{type:"region"});
-    return {httpStatus:200,body:{...checked,language:selectedLanguage,direction:text.direction,languageOptions:Object.entries(CONNECTION_TRANSLATIONS).map(([tag,pack])=>({tag,label:pack.language})),form:{...checked.form,message:text.message,fields:checked.form.fields.map(field=>({...field,label:text.fields[field.key],options:field.options.map(option=>({...option,label:field.key==="country"?countryNames.of(option.value)??option.label:option.label}))}))}}};
+    const text=translations[selectedLanguage],countryNames=new Intl.DisplayNames([selectedLanguage],{type:"region"});
+    return {httpStatus:200,body:{...checked,language:selectedLanguage,direction:text.direction,languageOptions:Object.entries(translations).map(([tag,pack])=>({tag,label:pack.language})),form:{...checked.form,message:text.message,fields:checked.form.fields.map(field=>({...field,label:text.fields[field.key],options:field.options.map(option=>({...option,label:field.key==="country"?countryNames.of(option.value)??option.label:option.label}))}))}}};
    })(),cancelled]);
    if(!res.destroyed)res.status(result.httpStatus).json(result.body);
   }catch{
