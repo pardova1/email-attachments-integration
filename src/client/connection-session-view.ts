@@ -1,4 +1,5 @@
 import {ConnectionCheckClient,type ConnectionCheckInput} from "./connection-check-client.js";
+import type {ConnectionTranslation} from "../email/connection-languages.js";
 import {mountConnectionAssistance} from "./connection-form-view.js";
 
 export interface ConnectionApplicationSession {
@@ -9,6 +10,7 @@ export interface ConnectionApplicationSession {
 export interface SessionConnectionOptions {
  apiBase:string;
  language?:string;
+ translations?:Record<string,ConnectionTranslation>;
  software?:ConnectionCheckInput["software"];
  request?:typeof fetch;
  onReadinessChange?:(ready:boolean)=>void;
@@ -26,7 +28,7 @@ export function mountSessionConnectionAssistance(container:HTMLElement,session:C
   if(disposed||current()!==expected||scope!==expected)throw new Error("CONNECTION_SESSION_CHANGED");
   return token;
  },options.request);
- const mounted=mountConnectionAssistance(container,client,{language:options.language,software:options.software});
+ const mounted=mountConnectionAssistance(container,client,{language:options.language,translations:options.translations,software:options.software});
  const ready=()=>{
   if(disposed||!scope||current()!==scope)return false;
   const state=mounted.model.state(),result=state.result;
