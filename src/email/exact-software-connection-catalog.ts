@@ -1,6 +1,6 @@
 import { BuiltInEmailSoftwareReferences } from "./built-in-email-software-references.js";
 import {createHash} from "node:crypto";
-import {CONNECTION_FIELDS,type ConnectionChoiceCatalog} from "./customer-connection-fallback.js";
+import {CONNECTION_FIELDS,type ConnectionChoice,type ConnectionChoiceCatalog} from "./customer-connection-fallback.js";
 import type { ConnectionToolCatalog } from "./automatic-connection-coordinator.js";
 import { GlobalConnectionReadinessAgent, REQUIRED_CONNECTION_CHECKS, type ConnectionCheck, type ConnectionEnvironment } from "./global-connection-readiness-agent.js";
 import type { ConnectionProbeTool } from "./global-connection-validation-runner.js";
@@ -64,7 +64,7 @@ export class ExactSoftwareConnectionCatalog implements ConnectionToolCatalog {
     return this.profiles.delete(this.key(this.normalized(environment)));
   }
   fallbackChoices(known:Partial<ConnectionEnvironment>={}):ConnectionChoiceCatalog {
-    const choices:ConnectionChoiceCatalog={},seen=new Map(CONNECTION_FIELDS.map(field=>[field,new Set<string>()]));
+    const choices:ConnectionChoiceCatalog={},seen=new Map(CONNECTION_FIELDS.map(field=>[field,new Map<string,ConnectionChoice>()]));
     for(const profile of this.profiles.values()){
       if(!this.current(profile))continue;
       const environment=profile.environment;
@@ -76,9 +76,14 @@ export class ExactSoftwareConnectionCatalog implements ConnectionToolCatalog {
       for(const [index,field] of CONNECTION_FIELDS.entries()){
         const prefix=CONNECTION_FIELDS.slice(0,index+1).map(key=>environment[key]);
         const id=`catalog-${createHash("sha256").update(JSON.stringify([field,...prefix])).digest("hex")}`;
-        if(seen.get(field)!.has(id))continue;
-        seen.get(field)!.add(id);
-        (choices[field]??=[]).push({id,label:environment[field],value:environment[field],requires:Object.fromEntries(CONNECTION_FIELDS.slice(0,index).map(key=>[key,environment[key]]))});
+        const existing=seen.get(field)!.get(id);
+        if(existing){
+          if(Date.parse(profile.expiresAt)>Date.parse(existing.expiresAt!))existing.expiresAt=profile.expiresAt;
+          continue;
+        }
+        const choice={id,label:environment[field],value:environment[field],expiresAt:profile.expiresAt,requires:Object.fromEntries(CONNECTION_FIELDS.slice(0,index).map(key=>[key,environment[key]]))};
+        seen.get(field)!.set(id,choice);
+        (choices[field]??=[]).push(choice);
       }
     }
     return choices;
