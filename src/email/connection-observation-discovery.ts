@@ -16,15 +16,23 @@ export interface CollectedConnectionDiscovery extends AutomaticConnectionDiscove
   fieldSources:Partial<Record<keyof ConnectionEnvironment,string>>;
 }
 const GROUPS={network:["country","network"],provider:["provider"],software:["client","platform","softwareVersion"]} as const;
+export interface ConnectionObservationRetryPolicy {maxAttempts?:number;delayMs?:number;}
+export function requireConnectionObservationRetryPolicy(policy:ConnectionObservationRetryPolicy={}){
+  const maxAttempts=policy.maxAttempts??2,delayMs=policy.delayMs??100;
+  if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>3||!Number.isInteger(delayMs)||delayMs<0||delayMs>1000)throw new Error("INVALID_DISCOVERY_RETRY_POLICY");
+  return {maxAttempts,delayMs};
+}
 
 // Sources are request-scoped adapters: trusted network lookup, authenticated
 // email account metadata, and client-reported software. Reports are routing
 // hints until probes verify them. Locale/language is never a country source.
 export class ConnectionObservationDiscovery implements ConnectionDiscoveryPort {
-  constructor(private readonly sources:ConnectionObservationSources,private readonly clock=()=>new Date(),private readonly sourceTimeoutMs=2_000) {
+  private readonly retry:ReturnType<typeof requireConnectionObservationRetryPolicy>;
+  constructor(private readonly sources:ConnectionObservationSources,private readonly clock=()=>new Date(),private readonly sourceTimeoutMs=2_000,retry:ConnectionObservationRetryPolicy={}) {
     if(Object.keys(GROUPS).some(group=>typeof sources[group as keyof ConnectionObservationSources]!=="function"))throw new Error("INVALID_DISCOVERY_SOURCES");
     this.sources={network:sources.network.bind(sources),provider:sources.provider.bind(sources),software:sources.software.bind(sources)};
     if(!Number.isInteger(sourceTimeoutMs)||sourceTimeoutMs<1||sourceTimeoutMs>5_000)throw new Error("INVALID_DISCOVERY_SOURCE_TIMEOUT");
+    this.retry=requireConnectionObservationRetryPolicy(retry);
   }
   async discover(signal:AbortSignal):Promise<CollectedConnectionDiscovery> {
     signal.throwIfAborted();
@@ -64,6 +72,28 @@ export class ConnectionObservationDiscovery implements ConnectionDiscoveryPort {
   }
 
   private async read(group:keyof ConnectionObservationSources,external:AbortSignal) {
+    for(let attempt=1;attempt<=this.retry.maxAttempts;attempt++){
+      external.throwIfAborted();
+      try{return await this.readAttempt(group,external);}catch(error){
+        external.throwIfAborted();
+        if(attempt===this.retry.maxAttempts)throw error;
+        await this.waitForRetry(external);
+      }
+    }
+    throw new Error("DISCOVERY_RETRIES_EXHAUSTED");
+  }
+
+  private waitForRetry(signal:AbortSignal){
+    signal.throwIfAborted();
+    if(!this.retry.delayMs)return Promise.resolve();
+    return new Promise<void>((resolve,reject)=>{
+      const aborted=()=>{clearTimeout(timer);signal.removeEventListener("abort",aborted);reject(signal.reason);};
+      const timer=setTimeout(()=>{signal.removeEventListener("abort",aborted);resolve();},this.retry.delayMs);
+      signal.addEventListener("abort",aborted,{once:true});
+    });
+  }
+
+  private async readAttempt(group:keyof ConnectionObservationSources,external:AbortSignal) {
     const controller=new AbortController(),signal=AbortSignal.any([external,controller.signal]);
     signal.throwIfAborted();
     let aborted!:()=>void;
