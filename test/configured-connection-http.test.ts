@@ -68,3 +68,10 @@ test("HTTP discovery recovers a temporary provider failure in the same request b
   const response=await post(`${url}/check`,{software}),result=await response.json();assert.equal(response.status,200);assert.equal(result.status,"assessed");assert.equal(result.validation.assessment.status,"verified");assert.equal(result.retryRequired,false);assert.equal(attempts,2);assert.deepEqual(configured.runs,[...REQUIRED_CONNECTION_CHECKS]);
  });
 });
+test("exact profile catalogs automatically supply fallback choices without a separate operator list",async()=>{
+ const configured=configuration(),{fallback:_fallback,...observations}=configured.observations;observations.provider=async()=>observed({});
+ await withServer({authenticator,observations},async url=>{
+  const first=await (await post(`${url}/check`,{software,language:"ar-KW"})).json();assert.equal(first.status,"customer-input-required");assert.deepEqual(first.form.fields.map((field:{key:string})=>field.key),["provider"]);assert.equal(first.form.fields[0].options[0].value,"gmail");
+  const checked=await (await post(`${url}/selections`,{software,formId:first.form.id,selections:{provider:first.form.fields[0].options[0].id}})).json();assert.equal(checked.validation.assessment.status,"verified");assert.deepEqual(configured.runs,[...REQUIRED_CONNECTION_CHECKS]);
+ });
+});

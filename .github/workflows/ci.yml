@@ -64,6 +64,7 @@ jobs:
           test/customer-connection-fallback.test.ts
           test/connection-choice-combinations.test.ts
           test/exact-software-connection-catalog.test.ts
+          test/profile-derived-fallback.test.ts
           test/connection-observation-discovery.test.ts
           test/connection-observation-retry.test.ts
           test/https-download-integrity-probe.test.ts

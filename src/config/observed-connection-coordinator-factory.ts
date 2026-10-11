@@ -1,8 +1,11 @@
 import {createConnectionCoordinatorFactory,type ConnectionCoordinatorFactoryOptions} from "./connection-coordinator-factory.js";
 import {ConnectionObservationDiscovery,requireConnectionObservationRetryPolicy,type ConnectionObservationRetryPolicy,type ConnectionObservationSources} from "../email/connection-observation-discovery.js";
 import type {ConnectionRequestContext} from "../http/connection-check-router.js";
+import {CustomerConnectionFallback} from "../email/customer-connection-fallback.js";
+import {ExactSoftwareConnectionCatalog} from "../email/exact-software-connection-catalog.js";
 
-export interface ObservedConnectionCoordinatorOptions extends Omit<ConnectionCoordinatorFactoryOptions,"discoveryFor"> {
+export interface ObservedConnectionCoordinatorOptions extends Omit<ConnectionCoordinatorFactoryOptions,"discoveryFor"|"fallback"> {
+ fallback?:CustomerConnectionFallback;
  network:(customer:{userId:string},context:ConnectionRequestContext,signal:AbortSignal)=>ReturnType<ConnectionObservationSources["network"]>;
  provider:(customer:{userId:string},signal:AbortSignal)=>ReturnType<ConnectionObservationSources["provider"]>;
  sourceTimeoutMs?:number;
@@ -15,7 +18,10 @@ export function createObservedConnectionCoordinatorFactory(options:ObservedConne
  const retry=requireConnectionObservationRetryPolicy(options.sourceRetry);
  if(typeof options.network!=="function"||typeof options.provider!=="function"||!Number.isInteger(timeout)||timeout<1||timeout>5000)throw new Error("INVALID_DISCOVERY_SOURCES");
  const network=options.network.bind(options),provider=options.provider.bind(options);
- return createConnectionCoordinatorFactory({...options,clock,async discoveryFor(customer,context,signal){
+ const catalog=options.catalog;
+ const fallback=options.fallback??(catalog instanceof ExactSoftwareConnectionCatalog?new CustomerConnectionFallback(known=>catalog.fallbackChoices(known),clock):undefined);
+ if(!fallback)throw new Error("CONNECTION_FALLBACK_NOT_CONFIGURED");
+ return createConnectionCoordinatorFactory({...options,fallback,clock,async discoveryFor(customer,context,signal){
   signal.throwIfAborted();const receivedAt=clock().toISOString();
   const details={...context.softwareHints};
   return new ConnectionObservationDiscovery({

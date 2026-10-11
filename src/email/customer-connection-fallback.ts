@@ -14,12 +14,9 @@ export interface ConnectionFallbackForm {
 }
 const labels: Record<ConnectionField,string> = { country:"Country",network:"Internet provider or network",provider:"Email provider",client:"Email app or browser",platform:"Device or operating system",softwareVersion:"Software version" };
 
-// Choices come from an application-managed compatibility catalog, not arbitrary
-// customer values. Selections are routing hints and still require connection tests.
-export class CustomerConnectionFallback {
-  private readonly choices: Partial<Record<ConnectionField,ConnectionChoice[]>>;
-  private readonly forms = new Map<string,{form:ConnectionFallbackForm;known:Partial<ConnectionEnvironment>;customerScope:string}>();
-  constructor(choices:Partial<Record<ConnectionField,ConnectionChoice[]>>,private readonly clock=()=>new Date()) {
+export type ConnectionChoiceCatalog=Partial<Record<ConnectionField,ConnectionChoice[]>>;
+export type ConnectionChoiceSource=(known:Partial<ConnectionEnvironment>)=>ConnectionChoiceCatalog;
+function snapshotConnectionChoices(choices:ConnectionChoiceCatalog){
     for(const key of CONNECTION_FIELDS){
       const ids=new Set<string>();
       for(const option of choices[key]??[]){
@@ -31,15 +28,28 @@ export class CustomerConnectionFallback {
         ids.add(option.id);
       }
     }
-    this.choices=structuredClone(choices);
+    return structuredClone(choices);
+}
+
+// Choices come from an application-managed compatibility catalog, not arbitrary
+// customer values. Selections are routing hints and still require connection tests.
+export class CustomerConnectionFallback {
+  private readonly choices:ConnectionChoiceCatalog;
+  private readonly choiceSource?:ConnectionChoiceSource;
+  private readonly forms = new Map<string,{form:ConnectionFallbackForm;known:Partial<ConnectionEnvironment>;customerScope:string}>();
+  constructor(choices:ConnectionChoiceCatalog|ConnectionChoiceSource,private readonly clock=()=>new Date()) {
+    this.choiceSource=typeof choices==="function"?choices:undefined;
+    this.choices=snapshotConnectionChoices(this.choiceSource?this.choiceSource({}):choices as ConnectionChoiceCatalog);
   }
 
   prepare(customerScope:string,known:Partial<ConnectionEnvironment>,missing:ConnectionField[]):ConnectionFallbackForm|undefined {
     requireConnectionCustomerScope(customerScope);
+    const automatic=Object.fromEntries(CONNECTION_FIELDS.filter(field=>!missing.includes(field)&&known[field]!==undefined).map(field=>[field,known[field]]));
+    const choices=this.choiceSource?snapshotConnectionChoices(this.choiceSource(automatic)):this.choices;
     const keys=CONNECTION_FIELDS.filter(key=>missing.includes(key));
     if(missing.some(key=>!CONNECTION_FIELDS.includes(key)))return undefined;
-    if(!keys.length||keys.some(key=>!CONNECTION_FIELDS.includes(key)||!this.choices[key]?.length))return undefined;
-    const options=new Map(keys.map(key=>[key,(this.choices[key]??[]).flatMap(option=>{
+    if(!keys.length||keys.some(key=>!CONNECTION_FIELDS.includes(key)||!choices[key]?.length))return undefined;
+    const options=new Map(keys.map(key=>[key,(choices[key]??[]).flatMap(option=>{
       const remaining:Partial<ConnectionEnvironment>={};
       for(const [dependency,value] of Object.entries(option.requires??{})) {
         const field=dependency as ConnectionField;
