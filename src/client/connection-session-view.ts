@@ -1,3 +1,4 @@
+import type {ConnectionFormRetryPolicy} from "./connection-form-model.js";
 import type {ConnectionCheckInput} from "./connection-check-client.js";
 import {BrowserConnectionCheckClient,type BrowserConnectionNavigator} from "./browser-connection-client.js";
 import type {ConnectionTranslation} from "../email/connection-languages.js";
@@ -10,6 +11,7 @@ export interface ConnectionApplicationSession {
 }
 export interface SessionConnectionOptions {
  apiBase:string;
+ retry?:ConnectionFormRetryPolicy;
  language?:string;
  translations?:Record<string,ConnectionTranslation>;
  software?:ConnectionCheckInput["software"];
@@ -29,7 +31,7 @@ export function mountSessionConnectionAssistance(container:HTMLElement,session:C
   if(disposed||current()!==expected||scope!==expected)throw new Error("CONNECTION_SESSION_CHANGED");
   return token;
  },options.request,container.ownerDocument.defaultView?.navigator as BrowserConnectionNavigator|undefined);
- const mounted=mountConnectionAssistance(container,client,{language:options.language,translations:options.translations,software:options.software});
+ const mounted=mountConnectionAssistance(container,client,{retry:options.retry,language:options.language,translations:options.translations,software:options.software});
  const ready=()=>{
   if(disposed||!scope||current()!==scope)return false;
   const state=mounted.model.state(),result=state.result;

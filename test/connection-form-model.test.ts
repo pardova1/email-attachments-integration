@@ -61,3 +61,47 @@ test("an invalid form clock cannot preserve a verified assessment",async()=>{
  result.retryRequired=false;Object.assign(result.validation.assessment,{status:"verified",expiresAt:"2099-01-01T00:00:00Z"});
  const model=new ConnectionFormModel({async check(){return result;},async submit(){return result;}},"en",()=>new Date(NaN));await model.check();assert.equal(model.state().result?.retryRequired,true);
 });
+function pending():ConnectionClientResult{return {status:"pending-internal-retry",retryRequired:true,language:"en",reason:"AUTOMATIC_CONNECTION_CHECK_UNAVAILABLE"};}
+test("temporary internal discovery failure retries automatically without exposing an intermediate form",async()=>{
+ let calls=0;const phases:string[]=[],policy={maxAttempts:2,delayMs:1};
+ const model=new ConnectionFormModel({async check(){return ++calls===1?pending():form();},async submit(){return assessed();}},"ar",undefined,undefined,policy);policy.maxAttempts=1;
+ model.subscribe(state=>phases.push(state.phase));await model.check();assert.equal(calls,2);assert.equal(model.state().phase,"choosing");assert.equal(phases.includes("unavailable"),false);assert.equal(model.state().language,"ar");
+});
+test("retry exhaustion is bounded and ordinary assessments and thrown client failures do not retry",async()=>{
+ for(const outcome of ["pending","assessment","throw"]){
+  let calls=0;const model=new ConnectionFormModel({async check(){calls++;if(outcome==="throw")throw new Error("PRIVATE_FAILURE");return outcome==="pending"?pending():assessed();},async submit(){return assessed();}},"en",undefined,undefined,{maxAttempts:3,delayMs:1});
+  await model.check();assert.equal(calls,outcome==="pending"?3:1);assert.equal(model.state().phase,outcome==="assessment"?"assessed":"unavailable");assert.equal(JSON.stringify(model.state()).includes("PRIVATE_FAILURE"),false);
+ }
+});
+test("fallback retry preserves selections and metadata despite adapter mutation",async()=>{
+ let calls=0;const received:ConnectionSelectionInput[]=[];
+ const model=new ConnectionFormModel({async check(){return form();},async submit(input){received.push(structuredClone(input));input.selections.client="mutated";return ++calls===1?pending():assessed();}},"fa",undefined,undefined,{maxAttempts:2,delayMs:1});
+ await model.check();model.choose("client","a");model.choose("softwareVersion","a-1");await model.submit({client:"native",platform:"android",softwareVersion:"1"});assert.equal(calls,2);assert.deepEqual(received[0],received[1]);assert.deepEqual(received[1].selections,{client:"a",softwareVersion:"a-1"});assert.equal(model.state().phase,"assessed");
+});
+test("form expiry during internal retry stops another fallback submission",async()=>{
+ let current=new Date(),calls=0;const offered=form();if(offered.status!=="customer-input-required")throw new Error("EXPECTED_FORM");
+ const model=new ConnectionFormModel({async check(){return offered;},async submit(){calls++;current=new Date(offered.form.expiresAt);return pending();}},"en",()=>current,undefined,{maxAttempts:3,delayMs:1});
+ await model.check();model.choose("client","a");model.choose("softwareVersion","a-1");await model.submit();assert.equal(calls,1);assert.equal(model.state().phase,"unavailable");
+});
+test("authentication reset connection change disposal and supersession cancel the retry delay",async()=>{
+ for(const action of ["authentication","connection","dispose","supersede"]){
+  let calls=0;const model=new ConnectionFormModel({async check(){return ++calls===1?pending():assessed();},async submit(){return assessed();}},"en",undefined,undefined,{maxAttempts:3,delayMs:50});
+  const first=model.check();await new Promise(resolve=>setTimeout(resolve,0));
+  if(action==="authentication")model.resetAuthentication();else if(action==="connection")model.invalidateConnection();else if(action==="dispose")model.dispose();else await model.check();
+  await first;assert.equal(calls,action==="supersede"?2:1);if(action!=="dispose")assert.equal(model.state().phase,action==="supersede"?"assessed":"unavailable");
+ }
+});
+test("invalid automatic retry policies are rejected before work begins",()=>{
+ const client={async check(){return form();},async submit(){return assessed();}};
+ for(const retry of [{maxAttempts:0,delayMs:0},{maxAttempts:4,delayMs:0},{maxAttempts:2,delayMs:-1},{maxAttempts:2,delayMs:1001},{maxAttempts:1.5,delayMs:1}])assert.throws(()=>new ConnectionFormModel(client,"en",undefined,undefined,retry),/INVALID_CONNECTION_FORM_RETRY_POLICY/);
+});
+test("a check superseded by a subscriber never invokes the old request",async()=>{
+ let calls=0,replaced=false,next:Promise<void>|undefined;
+ const model=new ConnectionFormModel({async check(){calls++;return assessed();},async submit(){return assessed();}},"en",undefined,undefined,{maxAttempts:2,delayMs:1});
+ model.subscribe(state=>{if(state.phase==="checking"&&!replaced){replaced=true;next=model.check();}});await model.check();await next;assert.equal(calls,1);assert.equal(model.state().phase,"assessed");
+});
+test("fallback expiry during the retry delay prevents the next request",async()=>{
+ let current=new Date(),calls=0;const offered=form();if(offered.status!=="customer-input-required")throw new Error("EXPECTED_FORM");
+ const model=new ConnectionFormModel({async check(){return offered;},async submit(){calls++;return pending();}},"en",()=>current,undefined,{maxAttempts:3,delayMs:30});
+ await model.check();model.choose("client","a");model.choose("softwareVersion","a-1");const submitting=model.submit();await new Promise(resolve=>setTimeout(resolve,0));current=new Date(offered.form.expiresAt);await submitting;assert.equal(calls,1);assert.equal(model.state().phase,"unavailable");
+});
