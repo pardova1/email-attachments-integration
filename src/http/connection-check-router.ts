@@ -19,6 +19,7 @@ export interface ConnectionCheckRouterOptions {
  allowedOrigins?:string[];
  translations?:Record<string,ConnectionTranslation>;
  timeoutMs?:number;
+ concurrency?:{perCustomer?:number;total?:number};
 }
 const hint=z.string().trim().min(1).max(256).refine(value=>!/[\x00-\x1f\x7f*]/.test(value));
 const language=z.string().min(1).max(100).optional();
@@ -30,6 +31,9 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
  const translations=structuredClone(options.translations??CONNECTION_TRANSLATIONS);validateConnectionFormTranslations(translations);
  const router=Router(),timeoutMs=options.timeoutMs??30_000;
  if(!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>120_000)throw new Error("INVALID_CONNECTION_REQUEST_TIMEOUT");
+ const perCustomer=options.concurrency?.perCustomer??1,total=options.concurrency?.total??100;
+ if(!Number.isInteger(perCustomer)||perCustomer<1||perCustomer>10||!Number.isInteger(total)||total<perCustomer||total>1000)throw new Error("INVALID_CONNECTION_CONCURRENCY");
+ const active=new Map<string,number>();let activeTotal=0;
  const origins=new Set((options.allowedOrigins??[]).map(origin=>{
   const url=new URL(origin);if(url.protocol!=="https:"||url.origin!==origin||url.username||url.password)throw new Error("INVALID_CONNECTION_ORIGIN");return origin;
  }));
@@ -42,6 +46,7 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
   const cancelled=new Promise<never>((_resolve,reject)=>{aborted=()=>reject(controller.signal.reason);controller.signal.addEventListener("abort",aborted,{once:true});});
   const timer=setTimeout(()=>controller.abort(new Error("CONNECTION_REQUEST_TIMEOUT")),timeoutMs);
   let status=503,error="CONNECTION_CHECK_UNAVAILABLE";
+  let acquiredScope:string|undefined;
   try{
    const result=await Promise.race([(async()=>{
     if(req.header("origin")&&!origins.has(req.header("origin")!)){status=403;error="CONNECTION_ORIGIN_REJECTED";throw new Error(error);}
@@ -54,6 +59,8 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
     const input=selection?selectionSchema.safeParse(req.body):checkSchema.safeParse(req.body);
     if(!input.success){status=400;error="INVALID_CONNECTION_REQUEST";throw new Error(error);}
     if(!options.coordinatorFor)throw new Error("CONNECTION_ADAPTERS_NOT_CONFIGURED");
+    if(activeTotal>=total||(active.get(customer.userId)??0)>=perCustomer)throw new Error("CONNECTION_CAPACITY_RETRY_REQUIRED");
+    acquiredScope=customer.userId;active.set(acquiredScope,(active.get(acquiredScope)??0)+1);activeTotal++;
     const context:ConnectionRequestContext={requestReference:`connection-request:${randomUUID()}`,networkAddress:req.socket.remoteAddress??"",userAgent:req.header("user-agent")?.slice(0,2048),...("software" in input.data?{softwareHints:input.data.software}:{})};
     const coordinator=await options.coordinatorFor({...customer},context,controller.signal);
     controller.signal.throwIfAborted();
@@ -77,6 +84,7 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
   }catch{
    if(!res.destroyed)res.status(controller.signal.aborted?503:status).json({error:controller.signal.aborted?"CONNECTION_CHECK_UNAVAILABLE":error});
   }finally{
+   if(acquiredScope!==undefined){const remaining=(active.get(acquiredScope)??1)-1;if(remaining)active.set(acquiredScope,remaining);else active.delete(acquiredScope);activeTotal--;}
    clearTimeout(timer);controller.signal.removeEventListener("abort",aborted);res.removeListener("close",disconnected);
   }
  };
