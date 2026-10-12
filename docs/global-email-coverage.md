@@ -414,3 +414,23 @@ The request defaults to a 30-second deadline (configurable from 1–120,000 ms),
 `createConfiguredConnectionRouters` creates the check and transfer APIs with one coordinator factory and shared fallback store, so forms issued by the check route remain usable at the transfer boundary while evidence is fresh per request. The server mounts this composition. Since the server still supplies no live observation/probe adapters, authenticated creation now remains unavailable with `SEND_CONNECTION_NOT_READY` until they are configured. This closes the readiness bypass; it does not deploy a usable app or wire a live email composer.
 
 Regression tests exercise actual HTTP creation with all seven synthetic checks, missing/failed/restricted setup, caller-supplied readiness, account/form ownership, license denial, expiry and withdrawal during licensing, timeout/disconnect cancellation, late setup, admission release, origin rejection, and shared check-to-transfer forms. The new route and licensed-send tests run in the permanent CI gates. Live providers, production credentials, deployment, and worldwide sender/recipient testing remain pending.
+
+
+### Configurable request capacity
+
+Both connection checks and transfer creation now use the same startup settings:
+`CONNECTION_MAX_ACTIVE_TOTAL` (default 100, maximum 1,000) and
+`CONNECTION_MAX_ACTIVE_PER_CUSTOMER` (default 1, maximum 10). Values must be
+positive integers and the total must be at least the per-customer limit.
+Invalid settings prevent server startup; changing settings requires a restart.
+Each API retains an independent admission budget per server instance.
+
+The 100 default counts active requests, not registered users, active uploads,
+file size, or total storage. Raising it does not provision resources. Operators
+must load test discovery/probe dependencies, authentication, licensing, database
+and network resources before raising production settings. Multiple instances
+have independent counters; there is no distributed admission controller here.
+Capacity exhaustion continues to defer connection checks internally and reject
+transfer creation without automatically repeating a side effect. Higher settings
+do not bypass fresh readiness, licensing, identity or integrity requirements.
+Live throughput and worldwide compatibility remain unverified.

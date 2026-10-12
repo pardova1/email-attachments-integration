@@ -1,3 +1,4 @@
+import {connectionConcurrency,type ConnectionConcurrency} from "../config/connection-concurrency.js";
 import {connectionLanguagePreferences} from "./connection-language-preferences.js";
 import {randomUUID} from "node:crypto";
 import {Router,type RequestHandler} from "express";
@@ -19,7 +20,7 @@ export interface ConnectionCheckRouterOptions {
  allowedOrigins?:string[];
  translations?:Record<string,ConnectionTranslation>;
  timeoutMs?:number;
- concurrency?:{perCustomer?:number;total?:number};
+ concurrency?:ConnectionConcurrency;
 }
 const hint=z.string().trim().min(1).max(256).refine(value=>!/[\x00-\x1f\x7f*]/.test(value));
 const language=z.string().min(1).max(100).optional();
@@ -31,8 +32,7 @@ export function createConnectionCheckRouter(options:ConnectionCheckRouterOptions
  const translations=structuredClone(options.translations??CONNECTION_TRANSLATIONS);validateConnectionFormTranslations(translations);
  const router=Router(),timeoutMs=options.timeoutMs??30_000;
  if(!Number.isInteger(timeoutMs)||timeoutMs<1||timeoutMs>120_000)throw new Error("INVALID_CONNECTION_REQUEST_TIMEOUT");
- const perCustomer=options.concurrency?.perCustomer??1,total=options.concurrency?.total??100;
- if(!Number.isInteger(perCustomer)||perCustomer<1||perCustomer>10||!Number.isInteger(total)||total<perCustomer||total>1000)throw new Error("INVALID_CONNECTION_CONCURRENCY");
+ const {perCustomer,total}=connectionConcurrency(options.concurrency);
  const active=new Map<string,number>();let activeTotal=0;
  const origins=new Set((options.allowedOrigins??[]).map(origin=>{
   const url=new URL(origin);if(url.protocol!=="https:"||url.origin!==origin||url.username||url.password)throw new Error("INVALID_CONNECTION_ORIGIN");return origin;
