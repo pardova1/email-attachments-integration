@@ -38,6 +38,11 @@ export class AutomaticConnectionCoordinator {
     if(this.customerScope!==scope)throw new Error("CONNECTION_COORDINATOR_SCOPE_MISMATCH");
   }
 
+  assessCurrentReadiness(environment:ConnectionEnvironment,scope:string) {
+    this.assertCustomerScope(scope);
+    return this.readiness.assess(environment,this.clock());
+  }
+
   // Automatic discovery remains the first step; no manual input is required here.
   async check(signal?: AbortSignal) {
     signal?.throwIfAborted();
