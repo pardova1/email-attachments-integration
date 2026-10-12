@@ -61,3 +61,37 @@ test("restart validates durable keys before publishing transfer state; missing k
  await second.uploadPart(transfer.id,1,Buffer.from("x"));assert.equal((await second.complete(transfer.id)).verifiedExact,true);
  await f.vault().destroyKey(reference);const third=restart();await assert.rejects(third.restore(transfer.id),/TRANSFER_KEY_UNAVAILABLE/);assert.throws(()=>third.get(transfer.id),/TRANSFER_NOT_LOADED/);
 });
+
+test("whole operation deadline bounds ignored transport cancellation and releases late bodies",async()=>{
+ const f=fixture();let resolve!:(response:Response)=>void,signal:AbortSignal|undefined,cancelled=false;
+ const request:typeof fetch=async(_url,init)=>{signal=init?.signal??undefined;return new Promise<Response>(done=>{resolve=done;});};
+ const pending=new SupabaseTransferKeyVault({...f.config,fetch:request,timeoutMs:20}).createKey({transferId:"t",laneId:"l"});
+ await assert.rejects(pending,/TRANSFER_KEY_VAULT_UNAVAILABLE/);assert.equal(signal?.aborted,true);
+ resolve(new Response(new ReadableStream({cancel(){cancelled=true;}}),{status:201}));
+ await new Promise(done=>setImmediate(done));assert.equal(cancelled,true);
+});
+test("deadline bounds stalled read parsing and cancels its reader",async()=>{
+ const f=fixture(),reference=await f.vault().createKey({transferId:"t",laneId:"l"});let cancelled=false;
+ const request:typeof fetch=async()=>new Response(new ReadableStream({cancel(){cancelled=true;}}),{headers:{"content-type":"application/json"}});
+ await assert.rejects(new SupabaseTransferKeyVault({...f.config,fetch:request,timeoutMs:20}).assertKeyScope(reference,{transferId:"t",laneId:"l"}),/TRANSFER_KEY_VAULT_UNAVAILABLE/);assert.equal(cancelled,true);
+});
+test("retirement requires stored tombstone confirmation and preserves expired state on failure",async()=>{
+ const f=fixture(),scope={transferId:"t",laneId:"l"},reference=await f.vault().createKey(scope);
+ const request:typeof fetch=(url,init)=>init?.method==="PATCH"?Promise.resolve(new Response(null,{status:204})):f.config.fetch(url,init);
+ const vault=new SupabaseTransferKeyVault({...f.config,fetch:request}),lanes=new PrivateLaneLifecycleCoordinator(new TransferCryptoContextService(vault));
+ lanes.restoreFromReference(scope.transferId,scope.laneId,reference);
+ await assert.rejects(lanes.onExpired(scope.transferId),/TRANSFER_KEY_RETIREMENT_UNCONFIRMED/);assert.equal(lanes.get(scope.transferId)?.status,"expired");
+ await f.vault().destroyKey(reference);await lanes.onExpired(scope.transferId);assert.equal(lanes.get(scope.transferId)?.status,"retired");
+ f.rows.clear();await assert.rejects(vault.destroyKey(reference),/TRANSFER_KEY_RETIREMENT_UNCONFIRMED/);
+});
+test("late retirement response cannot start a confirmation read after timeout",async()=>{
+ const f=fixture(),reference=await f.vault().createKey({transferId:"t",laneId:"l"});let resolve!:(response:Response)=>void,calls=0;
+ const request:typeof fetch=async()=>{calls++;return new Promise<Response>(done=>{resolve=done;});};
+ const pending=new SupabaseTransferKeyVault({...f.config,fetch:request,timeoutMs:20}).destroyKey(reference);
+ await assert.rejects(pending,/TRANSFER_KEY_VAULT_UNAVAILABLE/);resolve(new Response(null,{status:204}));await new Promise(done=>setImmediate(done));assert.equal(calls,1);
+});
+test("redirected oversized malformed and non-JSON reads never authorize restoration",async()=>{
+ const f=fixture(),scope={transferId:"t",laneId:"l"},reference=await f.vault().createKey(scope);
+ for(const response of [()=>Response.json({data:"x".repeat(17*1024)}),()=>new Response("{",{headers:{"content-type":"application/json"}}),()=>new Response("PRIVATE_DETAIL"),()=>{const r=Response.json([]);Object.defineProperty(r,"redirected",{value:true});return r;}])await assert.rejects(new SupabaseTransferKeyVault({...f.config,fetch:async()=>response()}).assertKeyScope(reference,scope),{message:"TRANSFER_KEY_VAULT_UNAVAILABLE"});
+ for(const timeoutMs of [0,60_001,1.5])assert.throws(()=>new SupabaseTransferKeyVault({...f.config,timeoutMs}));
+});
