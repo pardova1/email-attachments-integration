@@ -7,7 +7,7 @@ export class IdempotentEmailDispatcher {
   if(entry.status==="sent")return {sent:false,deduplicated:true};
   const claimed=await this.outbox.claim(key);
   if(!claimed)return {sent:false,deduplicated:true};
-  try{await this.email.send(claimed.message);await this.outbox.markSent(key);return {sent:true,deduplicated:false};}
+  try{await this.email.send(claimed.message,{idempotencyKey:key});await this.outbox.markSent(key);return {sent:true,deduplicated:false};}
   catch(error){await this.outbox.release(key);throw error;}
  }
 }

@@ -51,6 +51,9 @@ jobs:
           test/sender-transfer-http.test.ts
           test/sender-transfer-readiness-http.test.ts
           test/send-authorization.test.ts
+          test/resend-customer-email-adapter.test.ts
+          test/customer-email-production-composition.test.ts
+          test/idempotent-email-dispatcher.test.ts
           test/sender-authentication.test.ts
           test/transfer-completion-idempotency.test.ts
           test/transfer-byte-count.test.ts

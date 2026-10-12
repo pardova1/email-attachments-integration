@@ -3,6 +3,7 @@ export interface RecoveryEmail {
   subject: string;
   text: string;
 }
+export interface RecoveryEmailSendContext { idempotencyKey:string; signal?:AbortSignal; }
 export interface RecoveryEmailPort {
-  send(message: RecoveryEmail): Promise<void>;
+  send(message: RecoveryEmail, context?:RecoveryEmailSendContext): Promise<void>;
 }
