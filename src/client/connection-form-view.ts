@@ -15,7 +15,7 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
  const model=new ConnectionFormModel(client,language,undefined,translations,options.retry);
  let offline=false;
  try{offline=document.defaultView?.navigator.onLine===false;}catch{ /* Unknown browser state still requires normal probes. */ }
- const checkConnection=()=>{if(disposed)return;if(offline)model.invalidateConnection();else void model.check(options.software);};
+ const checkConnection=async()=>{if(disposed)return;if(offline)model.invalidateConnection();else await model.check(options.software);};
  let expiryTimer:ReturnType<typeof setTimeout>|undefined,disposed=false,assessmentDelivered:string|undefined=undefined;
  const refreshCurrent=()=>{
   if(disposed)return;
@@ -81,5 +81,5 @@ export function mountConnectionAssistance(container:HTMLElement,client:Connectio
  });
  const stopLifecycle=observeConnectionFormLifecycle(document,document.defaultView,refreshCurrent,online=>{offline=online===false;model.invalidateConnection();},checkConnection);
  checkConnection();
- return {model,dispose(){if(disposed)return;disposed=true;cancelRecovery();document.removeEventListener("visibilitychange",pauseHiddenRecovery);stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
+ return {model,checkNow:checkConnection,dispose(){if(disposed)return;disposed=true;cancelRecovery();document.removeEventListener("visibilitychange",pauseHiddenRecovery);stopLifecycle();if(expiryTimer)clearTimeout(expiryTimer);unsubscribe();model.dispose();container.replaceChildren();}};
 }

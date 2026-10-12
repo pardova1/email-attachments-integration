@@ -21,7 +21,7 @@ export interface SessionConnectionOptions {
 
 // Host session adapter only: no login UI, credentials, or persisted tokens.
 export function mountSessionConnectionAssistance(container:HTMLElement,session:ConnectionApplicationSession,options:SessionConnectionOptions){
- let disposed=false;
+ let disposed=false,sessionGeneration=0,sendCheckGeneration=0;
  const current=()=>{try{const scope=session.currentCustomer();return typeof scope==="string"&&scope.trim()===scope&&scope.length>0&&scope.length<=256&&!/[\x00-\x1f\x7f]/.test(scope)?scope:undefined;}catch{return undefined;}};
  let scope=current();
  const client=new BrowserConnectionCheckClient(options.apiBase,async signal=>{
@@ -41,7 +41,15 @@ export function mountSessionConnectionAssistance(container:HTMLElement,session:C
  const stopReadiness=mounted.model.subscribe(()=>{const value=ready();if(value!==last){last=value;options.onReadinessChange?.(value);}});
  const stopSession=session.subscribe(()=>{
   if(disposed)return;const next=current();if(next===scope)return;
-  scope=next;mounted.model.resetAuthentication();if(scope)void mounted.model.check(options.software);
+  sessionGeneration++;scope=next;mounted.model.resetAuthentication();if(scope)void mounted.checkNow();
  });
- return {model:mounted.model,isReady:ready,dispose(){if(disposed)return;disposed=true;stopSession();stopReadiness();mounted.dispose();if(last!==false){last=false;options.onReadinessChange?.(false);}}};
+ // Host attachment/send handlers call this immediately before proceeding.
+ // Always refresh evidence; an old ready flag alone cannot approve the action.
+ const checkBeforeSending=async()=>{
+  if(disposed||!scope||current()!==scope)return false;
+  const expected=scope,generation=sessionGeneration,check=++sendCheckGeneration;
+  await mounted.checkNow();
+  return !disposed&&generation===sessionGeneration&&check===sendCheckGeneration&&current()===expected&&ready();
+ };
+ return {model:mounted.model,isReady:ready,checkBeforeSending,dispose(){if(disposed)return;disposed=true;stopSession();stopReadiness();mounted.dispose();if(last!==false){last=false;options.onReadinessChange?.(false);}}};
 }
