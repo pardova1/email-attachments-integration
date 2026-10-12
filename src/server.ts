@@ -46,10 +46,10 @@ const service = new TransferService(
   undefined,
   transferStateRepository,
   { onExpired: (id, crypto) => privateLanes.onExpired(id, crypto) },
-  { onRestored: state => {
+  { onRestored: async state => {
     if (!state.keyReference) throw new Error("TRANSFER_KEY_REFERENCE_REQUIRED");
     const status = state.status === "available" || state.status === "verified" ? "verified" : state.status === "recovering" ? "recovering" : "active";
-    privateLanes.restoreFromReference(state.transferId, state.laneId, state.keyReference, status);
+    await privateLanes.restoreVerifiedReference(state.transferId, state.laneId, state.keyReference, status);
   }}
 );
 const verifiedDownloads = new VerifiedDownloadService(storage);

@@ -18,6 +18,11 @@ export class PrivateLaneLifecycleCoordinator {
 
   constructor(private readonly cryptoService:TransferCryptoContextService) {}
 
+  async restoreVerifiedReference(transferId:string,laneId:string,keyReference:string,status:PrivateLaneLifecycleStatus="active") {
+    await this.cryptoService.verifyReference(transferId,laneId,keyReference);
+    return this.restoreFromReference(transferId,laneId,keyReference,status);
+  }
+
   async createForSend(transferId:string, existingLaneId?:string):Promise<PrivateLaneLifecycle> {
     if (this.lanes.has(transferId) || this.creations.has(transferId)) throw new Error("PRIVATE_LANE_ALREADY_EXISTS");
     const pending=this.createOnce(transferId,existingLaneId);

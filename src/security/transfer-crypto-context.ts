@@ -9,12 +9,17 @@ export interface TransferCryptoContext {
 }
 
 export interface TransferKeyVault {
+  assertKeyScope?(keyReference: string, scope: {transferId:string;laneId:string}): Promise<void>;
   createKey(scope: { transferId: string; laneId: string }): Promise<string>;
   destroyKey(keyReference: string): Promise<void>;
 }
 
 export class TransferCryptoContextService {
   constructor(private readonly vault: TransferKeyVault) {}
+
+  async verifyReference(transferId:string,laneId:string,keyReference:string) {
+    await this.vault.assertKeyScope?.(keyReference,{transferId,laneId});
+  }
 
   async create(transferId: string, laneId: string): Promise<TransferCryptoContext> {
     if (!transferId || !laneId) throw new Error("TRANSFER_CRYPTO_IDENTITY_REQUIRED");

@@ -36,6 +36,7 @@ jobs:
           test/lane-access-guard.test.ts
           test/transfer-key-vault-production-gate.test.ts
           test/vault-transit-transfer-key-vault.test.ts
+          test/supabase-transfer-key-vault.test.ts
           test/transfer-crypto-context.test.ts
           test/private-lane-lifecycle-coordinator.test.ts
           test/integrity-recovery-policy.test.ts
