@@ -1,0 +1,15 @@
+# Durable transfer key envelopes
+
+The optional `supabase-envelope` adapter generates a fresh 32-byte key per send and stores only an AES-256-GCM encrypted envelope. A random 12-byte nonce and authenticated additional data bind each envelope to its opaque key reference, transfer ID, and lane ID. Raw keys never enter transfer-state rows, API replies, or logs.
+
+Configure `TRANSFER_KEY_VAULT_PROVIDER=supabase-envelope`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, and `TRANSFER_KEY_WRAPPING_SECRET` (canonical base64 encoding of 32 cryptographically random bytes). Apply the `encrypted_transfer_key_records` migration first. Keep the wrapping secret in a server secret manager, separate from the database; never commit it. All instances need the same secret. Losing or changing it makes existing envelopes unreadable. Rotation and a managed KMS/HSM adapter are separate work; this adapter does not provide HSM isolation.
+
+The key table has RLS enabled, no customer policies, no anonymous/authenticated grants, and explicit server grants. The server can insert/read envelopes and update only retirement columns; it cannot delete rows or rewrite transfer/lane identities. Restart restoration checks the database, scope, active state, and GCM authentication before publishing the transfer session. Missing, malformed, retired, or undecryptable keys leave the transfer unloaded. Vault operations have a 10-second network deadline, reject redirects, and mask private provider errors.
+
+Retirement clears the envelope and leaves an idempotent tombstone. This removes access through the current database but does not erase prior database backups. Restore procedures must preserve retirement records and enforce transfer expiry. Backup cryptographic erasure and wrapping-secret rotation require an explicit retention plan.
+
+Existing expiration cleanup still retries failures and never marks a lane retired before vault retirement succeeds. Lane IDs, file hashes, transfer deadlines, admission limits, and notification workers retain their existing contracts.
+
+This supplies durable key lifecycle records and authenticated restart checks. It does not yet integrate these data keys into file-chunk encryption/decryption, deploy a running server, configure production secrets, or connect an email composer. An encrypted envelope does not prove the transferred file bytes are encrypted by this adapter. Development keeps its existing in-memory references; production still refuses to start without an explicitly configured vault.
+
+Validation includes encrypted persistence across client replacement, per-transfer scope, record tampering, wrong wrapping secrets, missing/retired keys, idempotent retirement, private failure messages, and actual TransferService restart/upload/completion behavior with an HTTP fixture. Live database verification checks schema constraints and role grants; end-to-end REST operations with a production server secret remain pending.
