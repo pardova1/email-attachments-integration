@@ -43,7 +43,7 @@ The server starts the worker only when a customer-email provider is selected and
 
 The worker uses the existing lease migration and needs no new schema change. Candidate queries run through the server-only outbox adapter with current cutoff, bounded limit, and encoded cursor. Database ordering remains authoritative; the client does not assume that every country's text uses the same JavaScript sort order. Live inspection confirmed the equivalent candidate query executes on the connected project; the outbox was empty, and no emails were sent.
 
-This loop runs only while the backend process is hosted and running with configured credentials. It is not a deployed service, mailbox-delivery confirmation, or live composer integration. Valid email credentials/domain, production payment/key-vault adapters, live connection probes, deployment/process supervision, delivery/receipt reconciliation, and worldwide tests remain pending.
+This loop runs only while the backend process is hosted and running with configured credentials. It is not a deployed service, mailbox-delivery confirmation, or live composer integration. Valid email credentials/domain, production payment adapter, configured key vault, live connection probes, deployment/process supervision, delivery/receipt reconciliation, and worldwide tests remain pending.
 
 # Infrastructure check on October 12, 2026
 
@@ -51,4 +51,4 @@ The connected **Email attachment integration** Supabase project reported `ACTIVE
 
 The security advisor reported four informational RLS-enabled/no-policy findings. These tables currently belong to the server-side service-key adapters; public clients must not receive the secret key. No public row-access policies were added during this inspection. See the [Supabase advisor reference](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) if introducing direct client access; ownership policies must be designed before enabling that access.
 
-The production payment-provider and transfer-key-vault factories still lack working adapters, and the server supplies no live connection observation/probe adapters. Resend credentials, verified domain, live email composer integration, deployment, and worldwide tests remain pending. Supabase connectivity alone is not application completion.
+The production payment-provider factory still lacks a working adapter. A Vault Transit key lifecycle adapter is available but requires a provisioned vault and server credentials; the server supplies no live connection observation/probe adapters. Resend credentials, verified domain, live email composer integration, deployment, and worldwide tests remain pending. Supabase connectivity alone is not application completion.
