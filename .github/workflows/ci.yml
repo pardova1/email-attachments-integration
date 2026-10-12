@@ -57,6 +57,7 @@ jobs:
           test/parallel-upload-progress.test.ts
           test/recipient-download-http.test.ts
           test/transfer-cache-refresh.test.ts
+          test/email-integration-director.test.ts
           test/global-connection-readiness-agent.test.ts
           test/global-connection-validation-runner.test.ts
           test/https-connection-probe.test.ts
