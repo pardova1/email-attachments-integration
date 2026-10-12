@@ -1,4 +1,5 @@
 import {connectionConcurrencyFromEnvironment} from "./config/connection-concurrency.js";
+import {createBillingRouter,billingOriginsFromEnvironment} from "./http/billing-router.js";
 import {NotificationRetryWorker} from "./email/notification-retry-worker.js";
 import {createConfiguredConnectionRouters} from "./config/connection-check-router-factory.js";
 import { HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE } from "./http/health-contract.js";
@@ -102,6 +103,7 @@ const senderAuthenticator = new SupabaseSenderAuthenticator(
 );
 
 app.use(express.json({ limit: "1mb" }));
+app.use("/v1/billing",createBillingRouter({authenticator:senderAuthenticator,payments,entitlements,allowedOrigins:billingOriginsFromEnvironment(),concurrency:connectionConcurrencyFromEnvironment(process.env)}));
 // Live discovery/probe adapters must be supplied before connection checks can pass.
 const connectionRoutes=createConfiguredConnectionRouters({concurrency:connectionConcurrencyFromEnvironment(process.env),authenticator:senderAuthenticator,sends:authorizedSends,senderAccess:senderTransferAccess});
 app.use("/v1/connection",connectionRoutes.checks);

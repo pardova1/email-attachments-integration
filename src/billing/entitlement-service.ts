@@ -4,11 +4,14 @@ import type { LicenseRepository } from "./license-repository.js";
 import type { PaymentProvider } from "./payment-provider.js";
 export class EntitlementService {
   constructor(private readonly payments:PaymentProvider,private readonly licenses:LicenseRepository,private readonly applications?:LicensePaymentApplicationRepository){}
-  async activateFromPayment(providerReference:string,licenseName?:string){
+  async activateFromPayment(providerReference:string,licenseName?:string,context?:{expectedUserId:string;beforeApply:()=>void}){
     const payment=await this.payments.verifyPayment(providerReference);
     if(payment.status!=="paid") throw new Error("PAYMENT_NOT_COMPLETED");
+    if(payment.providerReference!==providerReference)throw new Error("PAYMENT_REFERENCE_MISMATCH");
+    if(context&&payment.userId!==context.expectedUserId)throw new Error("PAYMENT_CUSTOMER_MISMATCH");
     const plan=planForAmount(payment.amountUsdCents);
     if(!this.applications) throw new Error("PAYMENT_IDEMPOTENCY_NOT_CONFIGURED");
+    context?.beforeApply();
     return (await this.applications.apply({providerReference,userId:payment.userId,plan,licenseName,amountPaidUsdCents:payment.amountUsdCents,paidAt:payment.paidAt})).license;
   }
   async requireActive(userId:string,now=new Date(),plan?:import("./annual-license.js").LicensePlan){
