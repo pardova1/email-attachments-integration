@@ -54,6 +54,7 @@ jobs:
           test/sender-transfer-http.test.ts
           test/sender-transfer-readiness-http.test.ts
           test/send-authorization.test.ts
+          test/stripe-webhook-http.test.ts
           test/billing-http.test.ts
           test/stripe-payment-provider.test.ts
           test/payment-provider-production-composition.test.ts
