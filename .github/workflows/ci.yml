@@ -77,6 +77,7 @@ jobs:
           test/connection-observation-discovery.test.ts
           test/connection-observation-retry.test.ts
           test/https-download-integrity-probe.test.ts
+          test/connection-capacity.test.ts
           test/connection-check-http.test.ts
           test/connection-check-client.test.ts
           test/connection-form-model.test.ts

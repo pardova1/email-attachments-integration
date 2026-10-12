@@ -23,6 +23,6 @@ export function createConfiguredConnectionRouters(options:ConfiguredConnectionCh
  const coordinatorFor=observations?createObservedConnectionCoordinatorFactory(observations):undefined;
  return {
   checks:createConnectionCheckRouter({...http,coordinatorFor}),
-  transfers:createSenderTransferRouter({authenticator:http.authenticator,allowedOrigins:http.allowedOrigins,timeoutMs:http.timeoutMs,clock:observations?.clock,sends,senderAccess,coordinatorFor})
+  transfers:createSenderTransferRouter({authenticator:http.authenticator,allowedOrigins:http.allowedOrigins,timeoutMs:http.timeoutMs,concurrency:http.concurrency,clock:observations?.clock,sends,senderAccess,coordinatorFor})
  };
 }

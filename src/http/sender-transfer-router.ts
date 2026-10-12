@@ -1,3 +1,4 @@
+import {connectionConcurrency} from "../config/connection-concurrency.js";
 import {randomUUID} from "node:crypto";
 import {Router} from "express";
 import {z} from "zod";
@@ -16,6 +17,7 @@ export interface SenderTransferRouterOptions {
  allowedOrigins?:string[];
  timeoutMs?:number;
  clock?:()=>Date;
+ concurrency?:ConnectionCheckRouterOptions["concurrency"];
 }
 const hint=z.string().trim().min(1).max(256).refine(value=>!/[\x00-\x1f\x7f*]/.test(value));
 const createSchema=z.object({
@@ -33,7 +35,8 @@ export function createSenderTransferRouter(options:SenderTransferRouterOptions){
  const router=Router(),timeout=options.timeoutMs??30_000,clock=options.clock??(()=>new Date());
  if(!Number.isInteger(timeout)||timeout<1||timeout>120_000)throw new Error("INVALID_SEND_REQUEST_TIMEOUT");
  const origins=new Set((options.allowedOrigins??[]).map(origin=>{const url=new URL(origin);if(url.protocol!=="https:"||url.origin!==origin||url.username||url.password)throw new Error("INVALID_CONNECTION_ORIGIN");return origin;}));
- const active=new Set<string>();let total=0;
+ const {perCustomer,total:limit}=connectionConcurrency(options.concurrency);
+ const active=new Map<string,number>();let total=0;
  router.post("/",async(req,res)=>{
   res.setHeader("Cache-Control","no-store");
   const controller=new AbortController();let acquired:string|undefined;
@@ -53,8 +56,8 @@ export function createSenderTransferRouter(options:SenderTransferRouterOptions){
     if(!req.is("application/json")){status=415;error="CONNECTION_JSON_REQUIRED";throw new Error(error);}
     const parsed=createSchema.safeParse(req.body);
     if(!parsed.success){status=400;error="INVALID_REQUEST";throw new Error(error);}
-    if(!options.coordinatorFor||active.has(customer.userId)||total>=100)throw new Error(error);
-    const scope=customer.userId;acquired=scope;active.add(scope);total++;
+    if(!options.coordinatorFor||(active.get(customer.userId)??0)>=perCustomer||total>=limit)throw new Error(error);
+    const scope=customer.userId;acquired=scope;active.set(scope,(active.get(scope)??0)+1);total++;
     const {software,connection,...input}=parsed.data;
     const context:ConnectionRequestContext={requestReference:`send-request:${randomUUID()}`,networkAddress:req.socket.remoteAddress??"",userAgent:req.header("user-agent")?.slice(0,2048),...(software?{softwareHints:software}:{})};
     const coordinator=await options.coordinatorFor({...customer},context,controller.signal);
@@ -81,7 +84,7 @@ export function createSenderTransferRouter(options:SenderTransferRouterOptions){
   }catch{
    if(!res.destroyed)res.status(controller.signal.aborted?503:status).json({error:controller.signal.aborted?"SEND_CONNECTION_NOT_READY":error,...(error==="ACTIVE_LICENSE_REQUIRED"?{note:"Please renew your service."}:{})});
   }finally{
-   if(acquired!==undefined){active.delete(acquired);total--;}
+   if(acquired!==undefined){const remaining=(active.get(acquired)??1)-1;if(remaining)active.set(acquired,remaining);else active.delete(acquired);total--;}
    clearTimeout(timer);controller.signal.removeEventListener("abort",aborted);res.removeListener("close",disconnected);
   }
  });
