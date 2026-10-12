@@ -9,8 +9,9 @@ export class SendAuthorizationService {
     private readonly privateLanes?: PrivateLaneLifecycleCoordinator
   ) {}
 
-  async createForValidUser(userId: string, input: Parameters<TransferService["create"]>[0], now = new Date()) {
+  async createForValidUser(userId: string, input: Parameters<TransferService["create"]>[0], now = new Date(), beforeCreate?:()=>void) {
     await this.entitlements.requireActive(userId, now);
+    beforeCreate?.();
     const transfer = await this.transfers.createDurable(input);
     if (!this.privateLanes) return transfer;
     try {

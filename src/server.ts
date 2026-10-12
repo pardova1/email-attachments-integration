@@ -1,13 +1,12 @@
-import {createConfiguredConnectionCheckRouter} from "./config/connection-check-router-factory.js";
+import {createConfiguredConnectionRouters} from "./config/connection-check-router-factory.js";
 import { HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE } from "./http/health-contract.js";
 import express from "express";
-import { z } from "zod";
 import { MemoryStorage } from "./adapters/memory-storage.js";
 import { SupabaseStorage } from "./adapters/supabase-storage.js";
 import type { StoragePort } from "./ports/storage.js";
 import { TransferService } from "./services/transfer-service.js";
 import { RecipientAccessService } from "./services/recipient-access.js";
-import { senderExpirationNotice, recipientExpirationNotice } from "./domain/expiration-notices.js";
+import { recipientExpirationNotice } from "./domain/expiration-notices.js";
 import { requireChunkSha256 } from "./services/chunk-integrity-gate.js";
 import { MemoryLicenseRepository } from "./adapters/memory-license-repository.js";
 import { SupabaseLicenseRepository } from "./adapters/supabase-license-repository.js";
@@ -34,7 +33,6 @@ import { TransferCryptoContextService } from "./security/transfer-crypto-context
 import { PrivateLaneLifecycleCoordinator } from "./security/private-lane-lifecycle-coordinator.js";
 import { TransferExpirationWorker } from "./services/transfer-expiration-worker.js";
 import { SenderTransferAccessService, requireSenderTransferAccess } from "./services/sender-transfer-access.js";
-import { INITIAL_MAX_TRANSFER_BYTES, MAX_CHUNK_BYTES } from "./domain/transfer.js";
 import { createRecipientDownloadHandler } from "./http/recipient-download-handler.js";
 
 const app = express();
@@ -103,41 +101,13 @@ const senderAuthenticator = new SupabaseSenderAuthenticator(
 
 app.use(express.json({ limit: "1mb" }));
 // Live discovery/probe adapters must be supplied before connection checks can pass.
-app.use("/v1/connection",createConfiguredConnectionCheckRouter({authenticator:senderAuthenticator}));
+const connectionRoutes=createConfiguredConnectionRouters({authenticator:senderAuthenticator,sends:authorizedSends,senderAccess:senderTransferAccess});
+app.use("/v1/connection",connectionRoutes.checks);
 app.get("/health", (_req, res) => res.setHeader(HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE).json({ ok: true }));
 
-const createSchema = z.object({
-  fileName: z.string().min(1).max(1024),
-  contentType: z.string().min(1).max(255),
-  totalBytes: z.number().int().positive().max(INITIAL_MAX_TRANSFER_BYTES),
-  chunkBytes: z.number().int().positive().max(MAX_CHUNK_BYTES).optional(),
-  senderExpirationConfirmed: z.literal(true),
-  originalSha256: z.string().regex(/^[a-fA-F0-9]{64}$/)
-});
-
-app.post("/v1/transfers", async (req, res) => {
-  try {
-    const input = createSchema.parse(req.body);
-    const sender = await senderAuthenticator.authenticate(req.header("authorization"));
-    const t = await authorizedSends.createForValidUser(sender.userId, input);
-    res.status(201).json({
-      id: t.id,
-      chunkBytes: t.chunkBytes,
-      uploadExpiresAt: t.uploadExpiresAt,
-      uploadToken: senderTransferAccess.issue(t.id, t.uploadExpiresAt),
-      senderNotice: senderExpirationNotice,
-      recipientNotice: recipientExpirationNotice,
-      uploadPartUrlTemplate: `/v1/transfers/${t.id}/parts/{partNumber}`
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "INVALID_REQUEST";
-    const status = message === "SENDER_AUTHENTICATION_REQUIRED" ? 401 : message === "ACTIVE_LICENSE_REQUIRED" ? 403 : 400;
-    res.status(status).json({
-      error: message,
-      ...(message === "ACTIVE_LICENSE_REQUIRED" ? { note: "Please renew your service." } : {})
-    });
-  }
-});
+// No live connection adapters are configured yet: authenticated creation must
+// remain unavailable rather than bypassing the server-side readiness gate.
+app.use("/v1/transfers",connectionRoutes.transfers);
 
 app.put("/v1/transfers/:id/parts/:partNumber", requireSenderAccess, express.raw({ type: "*/*", limit: "70mb" }), async (req, res) => {
   try {
