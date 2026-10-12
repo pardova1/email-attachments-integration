@@ -1,3 +1,4 @@
+import {NOTIFICATION_RETRY_WINDOW_MS} from "../email/notification-outbox.js";
 import {createHash} from "node:crypto";
 import {z} from "zod";
 import type {RecoveryEmail,RecoveryEmailPort,RecoveryEmailSendContext} from "../email/recovery-email-port.js";
@@ -14,6 +15,8 @@ export class ResendCustomerEmailAdapter implements RecoveryEmailPort {
   const parsed=emailSchema.safeParse(message);
   if(!parsed.success)throw new Error("INVALID_CUSTOMER_EMAIL");
   if(!context||typeof context.idempotencyKey!=="string"||!context.idempotencyKey.trim()||context.idempotencyKey.length>4096||/[\x00-\x1f\x7f]/.test(context.idempotencyKey))throw new Error("CUSTOMER_EMAIL_IDEMPOTENCY_REQUIRED");
+  const first=Date.parse(context.firstAttemptAt??""),until=Date.parse(context.retryUntil??""),now=Date.now();
+  if(!Number.isFinite(first)||!Number.isFinite(until)||first>now||until<=now||until<=first||until-first>NOTIFICATION_RETRY_WINDOW_MS)throw new Error("CUSTOMER_EMAIL_RECONCILIATION_REQUIRED");
   if(context.signal?.aborted)throw new Error("CUSTOMER_EMAIL_SEND_CANCELLED");
   const body=JSON.stringify({from:this.from,to:[parsed.data.recipient],subject:parsed.data.subject,text:parsed.data.text});
   const key=`bridge:${createHash("sha256").update(context.idempotencyKey).digest("hex")}`;

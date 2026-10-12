@@ -4,3 +4,21 @@ test("concurrent workers deliver a pending notification only once",async()=>{con
 test("failed claimed delivery is released for retry",async()=>{const o=new MemoryNotificationOutbox();let n=0;const p:RecoveryEmailPort={async send(){if(++n===1)throw new Error("provider down");}};const d=new IdempotentEmailDispatcher(o,p),m={recipient:"x@example.com",subject:"s",text:"t"};await assert.rejects(()=>d.send("k2",m));assert.equal((await o.get("k2"))?.status,"pending");const r=await d.send("k2",m);assert.equal(r.sent,true);assert.equal((await o.get("k2"))?.status,"sent");});
 
 // CI synchronization marker: atomic delivery claim verification.
+
+test("expired claims recover with a new owner and retain their original message and retry window",async()=>{
+ let now=new Date("2026-10-12T16:00:00Z");const outbox=new MemoryNotificationOutbox(()=>now),message={recipient:"x@example.com",subject:"s",text:"original"};await outbox.reserve("recover",message);const first=await outbox.claim("recover");assert.ok(first);assert.equal(await outbox.claim("recover"),null);
+ now=new Date(now.getTime()+120000);await outbox.reserve("recover",{...message,text:"outside change"});const next=await outbox.claim("recover");assert.ok(next);assert.notEqual(next.claimToken,first.claimToken);assert.deepEqual(next.message,message);assert.equal(next.firstAttemptAt,first.firstAttemptAt);assert.equal(next.retryUntil,first.retryUntil);
+ await outbox.release("recover",first.claimToken);assert.equal((await outbox.get("recover"))?.claimToken,next.claimToken);await assert.rejects(()=>outbox.markSent("recover",first.claimToken),/NOTIFICATION_CLAIM_NOT_CURRENT/);await outbox.markSent("recover",next.claimToken);assert.equal((await outbox.get("recover"))?.status,"sent");
+});
+test("expired retry windows require reconciliation and never invoke the provider again",async()=>{
+ let now=new Date("2026-10-12T16:00:00Z"),calls=0;const outbox=new MemoryNotificationOutbox(()=>now),message={recipient:"x@example.com",subject:"s",text:"t"};await outbox.reserve("old",message);const first=await outbox.claim("old");assert.ok(first);await outbox.release("old",first.claimToken);now=new Date(first.retryUntil);
+ const dispatcher=new IdempotentEmailDispatcher(outbox,{async send(){calls++;}});await assert.rejects(()=>dispatcher.send("old",message),/NOTIFICATION_RECONCILIATION_REQUIRED/);assert.equal(calls,0);assert.equal((await outbox.get("old"))?.status,"reconciliation-required");await assert.rejects(()=>dispatcher.send("old",message),/NOTIFICATION_RECONCILIATION_REQUIRED/);
+});
+test("an old worker finishing after reclamation cannot mark or release the new worker's claim",async()=>{
+ let now=new Date("2026-10-12T16:00:00Z"),calls=0,finish!:()=>void;const outbox=new MemoryNotificationOutbox(()=>now),message={recipient:"x@example.com",subject:"s",text:"t"},held=new Promise<void>(resolve=>{finish=resolve;});
+ const dispatcher=new IdempotentEmailDispatcher(outbox,{async send(){calls++;await held;}});const pending=dispatcher.send("race",message);await new Promise(resolve=>setImmediate(resolve));now=new Date(now.getTime()+120000);const newer=await outbox.claim("race");assert.ok(newer);finish();await assert.rejects(()=>pending,/NOTIFICATION_CLAIM_NOT_CURRENT/);assert.equal((await outbox.get("race"))?.claimToken,newer.claimToken);assert.equal(calls,1);
+});
+test("the provider receives the persisted attempt window rather than a fresh retry deadline",async()=>{
+ let now=new Date("2026-10-12T16:00:00Z");const contexts:unknown[]=[],outbox=new MemoryNotificationOutbox(()=>now),dispatcher=new IdempotentEmailDispatcher(outbox,{async send(_message,context){contexts.push(context);if(contexts.length===1)throw new Error("temporary");}}),message={recipient:"x@example.com",subject:"s",text:"t"};
+ await assert.rejects(()=>dispatcher.send("stable",message));now=new Date(now.getTime()+60000);await dispatcher.send("stable",message);assert.deepEqual(contexts[0],contexts[1]);
+});
