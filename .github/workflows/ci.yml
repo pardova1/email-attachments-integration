@@ -54,6 +54,8 @@ jobs:
           test/resend-customer-email-adapter.test.ts
           test/customer-email-production-composition.test.ts
           test/idempotent-email-dispatcher.test.ts
+          test/notification-delivery-claim.test.ts
+          test/supabase-notification-outbox.test.ts
           test/sender-authentication.test.ts
           test/transfer-completion-idempotency.test.ts
           test/transfer-byte-count.test.ts
