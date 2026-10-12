@@ -11,8 +11,13 @@ export interface NotificationOutboxClaim extends NotificationOutboxEntry {
 }
 export interface NotificationOutbox {
  reserve(key:string,message:RecoveryEmail):Promise<{entry:NotificationOutboxEntry;created:boolean}>;
- claim(key:string):Promise<NotificationOutboxClaim|null>;
+ listRetryCandidates(cutoff:Date,limit:number,afterKey?:string,signal?:AbortSignal):Promise<string[]>;
+ claim(key:string,signal?:AbortSignal):Promise<NotificationOutboxClaim|null>;
  release(key:string,claimToken:string):Promise<void>;
  markSent(key:string,claimToken:string):Promise<void>;
- get(key:string):Promise<NotificationOutboxEntry|null>;
+ get(key:string,signal?:AbortSignal):Promise<NotificationOutboxEntry|null>;
+}
+
+export function assertNotificationBatch(cutoff:Date,limit:number){
+ if(!Number.isFinite(cutoff.getTime())||!Number.isInteger(limit)||limit<1||limit>100)throw new Error("INVALID_NOTIFICATION_BATCH");
 }

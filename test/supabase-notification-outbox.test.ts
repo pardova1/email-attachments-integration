@@ -16,3 +16,13 @@ test("claims arriving after lease expiry or with an extended retry window cannot
  const now=Date.now(),row={notification_key:"k",recipient:"a@example.com",subject:"s",body_text:"t",status:"sending",claim_token:"11111111-1111-4111-8111-111111111111",first_attempt_at:new Date(now).toISOString(),retry_until:new Date(now+23*3600000).toISOString(),claim_expires_at:new Date(now+120000).toISOString()};
  for(const changed of [{claim_expires_at:new Date(now-1).toISOString()},{retry_until:new Date(now+24*3600000).toISOString()},{claim_token:"invalid"}]){const outbox=new SupabaseNotificationOutbox("https://example.invalid","secret",async()=>new Response(JSON.stringify([{...row,...changed}])));await assert.rejects(()=>outbox.claim("k"),/INVALID_NOTIFICATION_OUTBOX_CLAIM/);}
 });
+test("candidate pages query pending and expired claims with encoded cursors and cancellation",async()=>{
+ const controller=new AbortController(),cutoff=new Date("2026-10-12T17:00:00Z");let queried:URL|undefined;const cursor="private:key+receiver@example.com";
+ const outbox=new SupabaseNotificationOutbox("https://example.invalid","secret",async(url,init)=>{queried=new URL(String(url));assert.equal(init?.signal,controller.signal);return new Response(JSON.stringify([{notification_key:"z"}]));});
+ assert.deepEqual(await outbox.listRetryCandidates(cutoff,25,cursor,controller.signal),["z"]);assert.equal(queried?.searchParams.get("notification_key"),`gt.${cursor}`);assert.equal(queried?.searchParams.get("limit"),"25");assert.match(queried!.searchParams.get("or")!,/status.eq.pending/);assert.match(queried!.searchParams.get("or")!,/claim_expires_at.lte.2026-10-12T17:00:00.000Z/);
+ controller.abort();await assert.rejects(()=>outbox.listRetryCandidates(cutoff,25,undefined,controller.signal));
+});
+test("candidate replies reject duplicates and over-limit pages without assuming a client-side locale order",async()=>{
+ const outbox=new SupabaseNotificationOutbox("https://example.invalid","secret",async()=>new Response(JSON.stringify([{notification_key:"Z"},{notification_key:"a"}])));assert.deepEqual(await outbox.listRetryCandidates(new Date(),2),["Z","a"]);
+ const duplicate=new SupabaseNotificationOutbox("https://example.invalid","secret",async()=>new Response(JSON.stringify([{notification_key:"same"},{notification_key:"same"}])));await assert.rejects(()=>duplicate.listRetryCandidates(new Date(),2),/INVALID_NOTIFICATION_OUTBOX_RESPONSE/);await assert.rejects(()=>outbox.listRetryCandidates(new Date(),1),/INVALID_NOTIFICATION_OUTBOX_RESPONSE/);
+});

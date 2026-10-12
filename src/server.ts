@@ -1,3 +1,4 @@
+import {NotificationRetryWorker} from "./email/notification-retry-worker.js";
 import {createConfiguredConnectionRouters} from "./config/connection-check-router-factory.js";
 import { HEALTH_PROBE_HEADER, HEALTH_PROBE_VALUE } from "./http/health-contract.js";
 import express from "express";
@@ -165,3 +166,12 @@ const stopExpirationWorker = new TransferExpirationWorker(transferStateRepositor
   if (!result || result.failed) console.error("TRANSFER_EXPIRATION_CLEANUP_RETRY_REQUIRED");
 });
 server.once("close", stopExpirationWorker);
+
+// Unconfigured development email stays unavailable and is never polled.
+const stopNotificationWorker=process.env.CUSTOMER_EMAIL_PROVIDER
+ ? new NotificationRetryWorker(notificationOutbox,customerEmail).start(30_000,result=>{
+   if(!result||result.failed)console.error("CUSTOMER_NOTIFICATION_RETRY_REQUIRED");
+   if(result?.reconciliationRequired)console.error("CUSTOMER_NOTIFICATION_RECONCILIATION_REQUIRED");
+  })
+ : ()=>{};
+server.once("close",stopNotificationWorker);
