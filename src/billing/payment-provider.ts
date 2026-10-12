@@ -5,8 +5,9 @@ export interface CheckoutRequest {
   amountUsdCents: 400 | 1000;
   product: "annual-license";
   plan?: LicensePlan;
+  requestId?: string;
 }
-export interface CheckoutResult { checkoutId: string; providerReference: string; }
+export interface CheckoutResult { checkoutId: string; providerReference: string; checkoutUrl?:string; }
 export interface PaymentConfirmation {
   userId: string; amountUsdCents: number; paidAt: Date; providerReference: string; status: "paid" | "failed" | "refunded";
 }

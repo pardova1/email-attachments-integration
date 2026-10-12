@@ -54,6 +54,8 @@ jobs:
           test/sender-transfer-http.test.ts
           test/sender-transfer-readiness-http.test.ts
           test/send-authorization.test.ts
+          test/stripe-payment-provider.test.ts
+          test/payment-provider-production-composition.test.ts
           test/renewal-service.test.ts
           test/entitlement.test.ts
           test/resend-customer-email-adapter.test.ts
