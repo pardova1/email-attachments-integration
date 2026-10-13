@@ -103,3 +103,33 @@ test("disconnected checkout retains the customer's slot while other customers ma
   await new Promise(done=>setImmediate(done));assert.equal((await post(`${base}/checkout`,checkout)).status,201);assert.equal(calls,3);
  });
 });
+test("license status scopes stored rows to bearer identity and returns private-free snapshots",async()=>{
+ const {createAnnualLicense}=await import("../src/billing/annual-license.js"),f=await fixture();await f.licenses.save(createAnnualLicense("a"));await f.licenses.save(createAnnualLicense("b",new Date(),"business"));
+ f.payments.verifyPayment=async()=>{throw new Error("STATUS_MUST_NOT_VERIFY_PAYMENT");};
+ await server(f,async base=>{
+  for(const token of ["a","b"]){const response=await post(`${base}/license-status`,{},token);assert.equal(response.status,200);assert.equal(response.headers.get("cache-control"),"no-store");const result=await response.json();assert.equal(result.licenses.length,1);assert.equal(result.licenses[0].plan,token==="a"?"individual":"business");assert.equal("userId" in result.licenses[0],false);assert.equal("licenseName" in result.licenses[0],false);assert.equal(result.licenses[0].active,true);}
+  assert.equal(f.calls.length,0);
+ });
+});
+test("license status rejects authentication origin and body-supplied identity before reading",async()=>{
+ const f=await fixture();let reads=0;f.licenses.listByUserId=async()=>{reads++;return [];};
+ await server({...f,allowedOrigins:["https://app.example"]},async base=>{
+  assert.equal((await post(`${base}/license-status`,{},"wrong")).status,401);
+  assert.equal((await post(`${base}/license-status`,{userId:"b"})).status,400);
+  assert.equal((await post(`${base}/license-status`,{},"a",{origin:"https://evil.example"})).status,403);assert.equal(reads,0);
+  const response=await post(`${base}/license-status`,{},"a",{origin:"https://app.example"});assert.equal(response.status,200);assert.deepEqual((await response.json()).licenses,[]);assert.equal(reads,1);
+ });
+});
+test("timed-out license read retains billing admission until the read settles",async()=>{
+ const f=await fixture();let entered!:()=>void,release!:()=>void,reads=0;const started=new Promise<void>(done=>{entered=done;}),held=new Promise<void>(done=>{release=done;});
+ f.licenses.listByUserId=async()=>{if(++reads===1){entered();await held;}return [];};
+ await server({...f,timeoutMs:100,concurrency:{perCustomer:1,total:1}},async base=>{
+  const pending=post(`${base}/license-status`,{});await started;assert.equal((await pending).status,503);
+  try{const busy=await post(`${base}/checkout`,checkout,"b");assert.equal(busy.status,503);assert.deepEqual(await busy.json(),{error:"BILLING_BUSY"});assert.equal(f.calls.length,0);}finally{release();}
+  await new Promise(done=>setImmediate(done));assert.equal((await post(`${base}/license-status`,{})).status,200);assert.equal(reads,2);
+ });
+});
+test("license repository failures and foreign rows return private unavailable errors",async()=>{
+ const {createAnnualLicense}=await import("../src/billing/annual-license.js"),f=await fixture();
+ for(const read of [async()=>{throw new Error("PRIVATE_DATABASE_SECRET");},async()=>[createAnnualLicense("b")]]){f.licenses.listByUserId=read;await server(f,async base=>{const response=await post(`${base}/license-status`,{});assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:"BILLING_UNAVAILABLE"});});}
+});

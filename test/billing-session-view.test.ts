@@ -7,7 +7,7 @@ const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{statu
 function fixture(request:typeof fetch,onConfirmed?:(license:any)=>void){
  const {document,window}=parseHTML('<html><body><main></main></body></html>'),container=document.querySelector("main") as unknown as HTMLElement;let user:string|undefined="a",changed:()=>void=()=>{},stopped=0;
  const session={currentCustomer:()=>user,async accessToken(){return `token-${user}`;},subscribe(callback:()=>void){changed=callback;return ()=>{stopped++;};}};
- const mounted=mountSessionBilling(container,session,{apiBase:"https://app.example/v1/billing",request,onConfirmed});return {container,window,mounted,session,setUser(value:string|undefined){user=value;changed();},get stopped(){return stopped;}};
+ const mounted=mountSessionBilling(container,session,{apiBase:"https://app.example/v1/billing",autoLoadStatus:false,request,onConfirmed});return {container,window,mounted,session,setUser(value:string|undefined){user=value;changed();},get stopped(){return stopped;}};
 }
 test("billing panel requires explicit checkout and confirmation; no return URL grants access",async()=>{
  let calls=0,confirmed=0;const f=fixture(async(url,init)=>{calls++;assert.equal((init!.headers as any).authorization,"Bearer token-a");return String(url).endsWith("checkout")?json(checkout,201):json(license);},()=>{confirmed++;});
@@ -37,6 +37,19 @@ test("disposal cancels pending work removes session listeners and clears panel",
 test("business selection uses shared prices and translated labels are inserted as text",async()=>{
  const {document,window}=parseHTML('<html><body><main></main></body></html>'),container=document.querySelector("main") as unknown as HTMLElement;let body:any;
  const session={currentCustomer:()=>"a",async accessToken(){return "token";},subscribe(){return ()=>{};}};
- const mounted=mountSessionBilling(container,session,{apiBase:"https://app.example/v1/billing",language:"ar",direction:"rtl",labels:{...BILLING_LABELS,title:"<img src=x onerror=alert(1)>"},request:async(_url,init)=>{body=JSON.parse(String(init!.body));return json(checkout,201);}});
+ const mounted=mountSessionBilling(container,session,{apiBase:"https://app.example/v1/billing",autoLoadStatus:false,language:"ar",direction:"rtl",labels:{...BILLING_LABELS,title:"<img src=x onerror=alert(1)>"},request:async(_url,init)=>{body=JSON.parse(String(init!.body));return json(checkout,201);}});
  try{assert.equal(container.querySelector("img"),null);assert.equal(container.querySelector("section")!.dir,"rtl");assert.ok(container.textContent?.includes("$10.00"));const select=container.querySelector("select")!;select.options[1].selected=true;select.options[0].removeAttribute("selected");select.dispatchEvent(new window.Event("change"));await mounted.checkoutNow();assert.equal(body.plan,"business");}finally{mounted.dispose();}
+});
+test("panel loads stored licenses on mount and refreshes the account without creating a payment",async()=>{
+ const {document}=parseHTML('<html><body><main></main></body></html>'),container=document.querySelector("main") as unknown as HTMLElement;let account="a",changed=()=>{},requests=0,paymentNotifications=0;
+ const session={currentCustomer:()=>account,async accessToken(){return `token-${account}`;},subscribe(callback:()=>void){changed=callback;return ()=>{};}};
+ const mounted=mountSessionBilling(container,session,{apiBase:"https://app.example/v1/billing",onConfirmed(){paymentNotifications++;},request:async(url,init)=>{requests++;assert.equal(url,"https://app.example/v1/billing/license-status");assert.equal(init!.body,"{}");assert.equal((init!.headers as any).authorization,`Bearer token-${account}`);return json({checkedAt:new Date().toISOString(),licenses:account==="a"?[{...license,active:true}]:[]});}});
+ try{await mounted.initialStatus;assert.ok(container.querySelector("ul")?.textContent?.includes("Active"));assert.ok(container.querySelector("ul")?.textContent?.includes(license.expiresAt));assert.equal(paymentNotifications,0);account="b";changed();await new Promise(done=>setImmediate(done));assert.ok(container.querySelector("ul")?.textContent?.includes(BILLING_LABELS.noLicenses));assert.equal(container.textContent?.includes(license.expiresAt),false);await mounted.refreshStatus();assert.equal(requests,3);assert.equal(paymentNotifications,0);}finally{mounted.dispose();}
+});
+test("late account status is discarded and unavailable status is not displayed as no licenses",async()=>{
+ const {document}=parseHTML('<html><body><main></main></body></html>'),container=document.querySelector("main") as unknown as HTMLElement;let account:string|undefined="a",changed=()=>{},release!:(response:Response)=>void,entered!:()=>void,signal:AbortSignal|undefined;const started=new Promise<void>(done=>{entered=done;});
+ const session={currentCustomer:()=>account,async accessToken(){return "token";},subscribe(callback:()=>void){changed=callback;return ()=>{};}};
+ const mounted=mountSessionBilling(container,session,{apiBase:"https://app.example/v1/billing",request:async(_url,init)=>{signal=init?.signal??undefined;entered();return new Promise(done=>{release=done;});}});
+ try{await started;account=undefined;changed();await mounted.initialStatus;assert.equal(signal?.aborted,true);release(json({checkedAt:new Date().toISOString(),licenses:[{...license,active:true}]}));await new Promise(done=>setImmediate(done));assert.equal(container.textContent?.includes(license.expiresAt),false);assert.equal(container.textContent?.includes(BILLING_LABELS.noLicenses),false);}finally{mounted.dispose();}
+ const f=fixture(async()=>json({error:"PRIVATE_DATABASE"},503));try{await f.mounted.refreshStatus();assert.ok(f.container.textContent?.includes(BILLING_LABELS.unavailable));assert.equal(f.container.textContent?.includes(BILLING_LABELS.noLicenses),false);}finally{f.mounted.dispose();}
 });

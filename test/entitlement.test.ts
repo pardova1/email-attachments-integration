@@ -31,3 +31,16 @@ test("wrong payment amount cannot activate entitlement", async () => {
   const service = new EntitlementService(payments, new MemoryLicenseRepository());
   await assert.rejects(() => service.activateFromPayment("p1"), /INVALID_LICENSE_AMOUNT/);
 });
+test("license status reads both customer plans without verifying or applying payment",async()=>{
+ const {createAnnualLicense}=await import("../src/billing/annual-license.js"),licenses=new MemoryLicenseRepository();let paymentsCalled=0;
+ const payments={async createCheckout(){paymentsCalled++;throw new Error("UNUSED");},async verifyPayment(){paymentsCalled++;throw new Error("UNUSED");}};
+ const individual=createAnnualLicense("a",new Date("2025-01-01T00:00:00Z")),business=createAnnualLicense("a",new Date("2026-09-01T00:00:00Z"),"business");await licenses.save(individual);await licenses.save(business);await licenses.save(createAnnualLicense("b"));
+ const service=new EntitlementService(payments,licenses),at=new Date("2026-10-13T00:00:00Z"),result=await service.licenseStatus("a",at);
+ assert.equal(result.checkedAt,at.toISOString());assert.deepEqual(result.licenses.map(x=>[x.plan,x.active]),[["business",true],["individual",false]]);assert.equal(result.licenses.every(x=>!("userId" in x)&&!("licenseName" in x)),true);assert.equal(individual.status,"active");assert.equal(paymentsCalled,0);assert.deepEqual((await service.licenseStatus("missing",at)).licenses,[]);
+});
+test("future starts explicit expiration foreign rows duplicates and malformed license state fail safely",async()=>{
+ const {createAnnualLicense}=await import("../src/billing/annual-license.js"),base=createAnnualLicense("a",new Date("2026-10-13T00:00:00Z")),at=new Date("2026-10-12T00:00:00Z"),licenses=new MemoryLicenseRepository(),payments={async createCheckout(){throw new Error("UNUSED");},async verifyPayment(){throw new Error("UNUSED");}};
+ await licenses.save(base);const service=new EntitlementService(payments,licenses);assert.equal((await service.licenseStatus("a",at)).licenses[0].active,false);
+ base.status="expired";assert.equal((await service.licenseStatus("a",new Date("2026-11-01T00:00:00Z"))).licenses[0].active,false);
+ for(const rows of [[{...base,userId:"b"}],[base,base],[{...base,amountPaidUsdCents:1}],[{...base,startsAt:new Date("invalid")}],[{...base,expiresAt:base.startsAt}]]){licenses.listByUserId=async()=>rows;await assert.rejects(service.licenseStatus("a",at));}
+});

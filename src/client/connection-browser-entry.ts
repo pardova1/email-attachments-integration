@@ -1,6 +1,6 @@
 // Browser entry: exports client-side connection and billing components only.
 export {BillingClient,BillingClientError} from "./billing-client.js";
-export type {BillingCheckout,BillingLicense,BillingErrorCode} from "./billing-client.js";
+export type {BillingCheckout,BillingLicense,BillingLicenseStatus,BillingErrorCode} from "./billing-client.js";
 export {mountSessionBilling,BILLING_LABELS} from "./billing-session-view.js";
 export type {SessionBillingOptions} from "./billing-session-view.js";
 export {ConnectionCheckClient,ConnectionClientError} from "./connection-check-client.js";
