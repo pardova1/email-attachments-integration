@@ -1,5 +1,7 @@
 # Combined signed-in sender account
 
+The host can continue a successful preflight through the [browser transfer-creation client](browser-transfer-creation.md).
+
 The standalone `connection-assistance.js` browser bundle exports `mountSenderAccount` to mount billing and connection assistance under one host account. The existing panels can still be used individually. This component supplies no login form, hosting, composer hook, file picker, upload transport or mail sending.
 
 ```ts

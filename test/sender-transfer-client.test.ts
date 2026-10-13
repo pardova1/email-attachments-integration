@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {SenderTransferClient,SenderTransferClientError} from "../src/client/sender-transfer-client.js";
+import {INITIAL_MAX_TRANSFER_BYTES,MAX_CHUNK_BYTES} from "../src/domain/transfer-limits.js";
+const api="https://app.example/v1/transfers",id="11111111-1111-4111-8111-111111111111",input={fileName:"video.mp4",contentType:"video/mp4",totalBytes:1024,originalSha256:"a".repeat(64),senderExpirationConfirmed:true as const};
+function created(){const expires=new Date(Date.now()+60000).toISOString(),payload=Buffer.from(JSON.stringify({transferId:id,scope:"upload",exp:Math.floor(Date.parse(expires)/1000)})).toString("base64url");return {id,chunkBytes:MAX_CHUNK_BYTES,uploadExpiresAt:expires,uploadToken:`${payload}.syntheticSignature`,senderNotice:"4-hour window",recipientNotice:"4-hour window",uploadPartUrlTemplate:`/v1/transfers/${id}/parts/{partNumber}`};}
+const json=(value:unknown,status=201)=>new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json"}});
+const code=(expected:string)=>(error:unknown)=>error instanceof SenderTransferClientError&&error.code===expected;
+function session(){let account:string|undefined="a",token="token-a";const listeners=new Set<()=>void>();return {currentCustomer:()=>account,async accessToken(){return token;},subscribe(callback:()=>void){listeners.add(callback);return ()=>listeners.delete(callback);},change(value:string|undefined,nextToken=`token-${value}`){account=value;token=nextToken;for(const callback of listeners)callback();},listeners};}
+test("creation sends validated metadata and fresh account credentials without file bytes",async()=>{
+ const auth=session(),sent:any[]=[];const client=new SenderTransferClient(api,auth,async(url,init)=>{assert.equal(url,api);assert.equal(init!.credentials,"omit");assert.equal(init!.redirect,"error");assert.equal(init!.cache,"no-store");sent.push({body:JSON.parse(String(init!.body)),authorization:(init!.headers as any).authorization});return json(created());});
+ try{const result=await client.create(input);assert.equal(result.id,id);auth.change("a","refreshed-token");await client.create({...input,totalBytes:INITIAL_MAX_TRANSFER_BYTES});assert.deepEqual(sent[0],{body:input,authorization:"Bearer token-a"});assert.equal(sent[1].authorization,"Bearer refreshed-token");assert.equal(sent[1].body.totalBytes,500*1024**3);}finally{client.dispose();assert.equal(auth.listeners.size,0);}
+});
+test("invalid identities flags hashes sizes and unconfirmed expiration fail before token retrieval",async()=>{
+ const auth=session();let calls=0;auth.accessToken=async()=>{calls++;return "token";};const client=new SenderTransferClient(api,auth,async()=>{calls++;return json(created());});
+ try{for(const extra of [{userId:"b"},{ready:true},{paid:true},{totalBytes:INITIAL_MAX_TRANSFER_BYTES+1},{totalBytes:0},{chunkBytes:MAX_CHUNK_BYTES+1},{originalSha256:"bad"},{senderExpirationConfirmed:false},{connection:{formId:id,selections:{unknown:"x"}}}])await assert.rejects(client.create({...input,...extra} as any),code("REQUEST_REJECTED"));assert.equal(calls,0);}finally{client.dispose();}
+});
+test("unsafe endpoint configuration cannot subscribe to a host session",()=>{
+ const auth=session();for(const value of ["http://app.example/v1/transfers",api+"?token=x",api+"#x","https://user@app.example/v1/transfers","https://app.example/other"])assert.throws(()=>new SenderTransferClient(value,auth),/INVALID_SENDER_TRANSFER_CONFIGURATION/);assert.equal(auth.listeners.size,0);
+});
+test("creation response binds chunk size capability scope deadline and upload path to its transfer",async()=>{
+ const auth=session(),valid=created();
+ const altered=[{...valid,uploadPartUrlTemplate:"https://evil.example/upload"},{...valid,chunkBytes:1},{...valid,uploadExpiresAt:"2000-01-01T00:00:00.000Z"},{...valid,userId:"private"},{...valid,uploadToken:"account-token"}];
+ for(const claims of [{transferId:id,scope:"download",exp:Math.floor(Date.parse(valid.uploadExpiresAt)/1000)},{transferId:"another",scope:"upload",exp:Math.floor(Date.parse(valid.uploadExpiresAt)/1000)},{transferId:id,scope:"upload",exp:1}])altered.push({...valid,uploadToken:Buffer.from(JSON.stringify(claims)).toString("base64url")+".synthetic"});
+ for(const value of altered){const client=new SenderTransferClient(api,auth,async()=>json(value));try{await assert.rejects(client.create(input),code("INVALID_RESPONSE"));}finally{client.dispose();}}
+});
+test("public error mapping masks server details and distinguishes license rejection",async()=>{
+ for(const [status,body,expected] of [[401,{error:"PRIVATE_AUTH"},"AUTHENTICATION_REQUIRED"],[400,{error:"PRIVATE_FILENAME"},"REQUEST_REJECTED"],[403,{error:"ACTIVE_LICENSE_REQUIRED",note:"Private text ignored"},"ACTIVE_LICENSE_REQUIRED"],[403,{error:"PRIVATE_ORIGIN"},"REQUEST_REJECTED"],[503,{error:"PRIVATE_DEPENDENCY"},"TRANSFER_UNAVAILABLE"]] as const){const client=new SenderTransferClient(api,session(),async()=>json(body,status));try{await assert.rejects(client.create(input),code(expected));}finally{client.dispose();}}
+});
+test("account switch away and back rejects a late token before sending creation",async()=>{
+ const auth=session();let release!:(token:string)=>void,calls=0;auth.accessToken=async()=>new Promise(done=>{release=done;});const client=new SenderTransferClient(api,auth,async()=>{calls++;return json(created());});
+ try{const pending=client.create(input);auth.change("b");auth.change("a");await assert.rejects(pending,code("ACCOUNT_CHANGED"));release("old-token-a");await new Promise(done=>setImmediate(done));assert.equal(calls,0);}finally{client.dispose();}
+});
+test("account changes discard late creation replies and cancel their bodies",async()=>{
+ const auth=session();let entered!:()=>void,release!:(value:Response)=>void,signal:AbortSignal|undefined,cancelled=0;const started=new Promise<void>(done=>{entered=done;});const client=new SenderTransferClient(api,auth,async(_url,init)=>{signal=init?.signal??undefined;entered();return new Promise(done=>{release=done;});});
+ try{const pending=client.create(input);await started;auth.change(undefined);await assert.rejects(pending,code("ACCOUNT_CHANGED"));assert.equal(signal?.aborted,true);release(new Response(new ReadableStream({cancel(){cancelled++;}})));await new Promise(done=>setImmediate(done));assert.equal(cancelled,1);await assert.rejects(client.create(input),code("AUTHENTICATION_REQUIRED"));}finally{client.dispose();}
+});
+test("creation has bounded token transport and response-body deadlines and no automatic retry",async()=>{
+ for(const stage of ["token","transport","body"]){const auth=session();let calls=0;if(stage==="token")auth.accessToken=async()=>new Promise(()=>{});const client=new SenderTransferClient(api,auth,async()=>{calls++;return stage==="transport"?new Promise(()=>{}):new Response(new ReadableStream({start(){}}),{status:201,headers:{"content-type":"application/json"}});},20);try{await assert.rejects(client.create(input),code("TRANSFER_UNAVAILABLE"));assert.equal(calls,stage==="token"?0:1);}finally{client.dispose();}}
+});
+test("oversized malformed and invalid UTF-8 creation responses fail privately",async()=>{
+ for(const response of [json({payload:"x".repeat(17000)}),new Response("{",{status:201,headers:{"content-type":"application/json"}}),new Response(new Uint8Array([255]),{status:201,headers:{"content-type":"application/json"}})]){const client=new SenderTransferClient(api,session(),async()=>response);try{await assert.rejects(client.create(input),code("INVALID_RESPONSE"));}finally{client.dispose();}}
+});
+test("overlapping creation is blocked and disposal cancels requests and subscriptions",async()=>{
+ const auth=session();let entered!:()=>void,calls=0;const started=new Promise<void>(done=>{entered=done;});const client=new SenderTransferClient(api,auth,async()=>{calls++;entered();return new Promise(()=>{});});
+ const pending=client.create(input);await started;await assert.rejects(client.create(input),code("TRANSFER_BUSY"));assert.equal(calls,1);client.dispose();await assert.rejects(pending,code("CLIENT_DISPOSED"));await assert.rejects(client.create(input),code("CLIENT_DISPOSED"));client.dispose();assert.equal(auth.listeners.size,0);
+});
+test("browser creation client works with authenticated local HTTP and receives a valid upload capability",async()=>{
+ const [{default:express},{createSenderTransferRouter},{AutomaticConnectionCoordinator},{GlobalConnectionReadinessAgent,REQUIRED_CONNECTION_CHECKS},{SenderTransferAccessService},{MemoryLicenseRepository},{MemoryStorage},{TransferService},{EntitlementService},{SendAuthorizationService},{createAnnualLicense}]=await Promise.all([import("express"),import("../src/http/sender-transfer-router.js"),import("../src/email/automatic-connection-coordinator.js"),import("../src/email/global-connection-readiness-agent.js"),import("../src/services/sender-transfer-access.js"),import("../src/adapters/memory-license-repository.js"),import("../src/adapters/memory-storage.js"),import("../src/services/transfer-service.js"),import("../src/billing/entitlement-service.js"),import("../src/services/send-authorization-service.js"),import("../src/billing/annual-license.js")]);
+ const auth=session(),licenses=new MemoryLicenseRepository();await licenses.save(createAnnualLicense("a"));const entitlements=new EntitlementService({async createCheckout(){throw new Error("UNUSED");},async verifyPayment(){throw new Error("UNUSED");}},licenses),transfers=new TransferService(new MemoryStorage()),sends=new SendAuthorizationService(entitlements,transfers),access=new SenderTransferAccessService("synthetic-secret");
+ const environment={country:"NO",network:"synthetic",provider:"synthetic",client:"synthetic",platform:"android",softwareVersion:"1"};
+ const tools=Object.fromEntries(REQUIRED_CONNECTION_CHECKS.map(check=>[check,{id:check,async run(){return {outcome:"passed" as const,testReference:`synthetic:${check}`,...(check==="recipient-download"?{recipientNeedsInstallation:false}:{})};}}]));
+ const app=express();app.use(express.json());app.use("/v1/transfers",createSenderTransferRouter({sends,senderAccess:access,authenticator:{async authenticate(value){assert.equal(value,"Bearer token-a");return {userId:"a"};}},async coordinatorFor(customer){return new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:new Date().toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){return tools;}},new GlobalConnectionReadinessAgent(),()=>new Date(),10000,undefined,customer.userId);}}));
+ const http=app.listen(0,"127.0.0.1");await new Promise<void>(done=>http.once("listening",done));const address=http.address();assert.ok(address&&typeof address!=="string");const client=new SenderTransferClient(api,auth,(url,init)=>fetch(`http://127.0.0.1:${address.port}${new URL(String(url)).pathname}`,init));
+ try{const result=await client.create(input);assert.equal(access.verify(`Bearer ${result.uploadToken}`,result.id).transferId,result.id);assert.equal(transfers.get(result.id).totalBytes,input.totalBytes);assert.equal(transfers.get(result.id).receivedParts.size,0);}finally{client.dispose();await new Promise<void>((resolve,reject)=>http.close(error=>error?reject(error):resolve()));}
+});
