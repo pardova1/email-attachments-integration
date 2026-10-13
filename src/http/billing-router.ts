@@ -33,7 +33,7 @@ export function createBillingRouter(options:BillingRouterOptions){
   const cancelled=new Promise<never>((_resolve,reject)=>{aborted=()=>reject(new Error("BILLING_UNAVAILABLE"));controller.signal.addEventListener("abort",aborted,{once:true});});
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
-   const reply=await Promise.race([(async()=>{
+   const work=(async()=>{
     const reject=(code:number,message:string):never=>{status=code;error=message;throw new Error(message);};
     if(req.header("origin")&&!origins.has(req.header("origin")!))reject(403,"BILLING_ORIGIN_REJECTED");
     if(!req.header("authorization")?.startsWith("Bearer "))reject(401,"SENDER_AUTHENTICATION_REQUIRED");
@@ -63,11 +63,14 @@ export function createBillingRouter(options:BillingRouterOptions){
      if(cause instanceof Error&&["PAYMENT_NOT_COMPLETED","PAYMENT_CUSTOMER_MISMATCH","PAYMENT_REFERENCE_MISMATCH","INVALID_LICENSE_AMOUNT"].includes(cause.message))reject(409,"PAYMENT_CONFIRMATION_REJECTED");
      throw cause;
     }
-   })(),cancelled]);
+   })().finally(()=>{
+    // A response deadline does not end uncancellable provider/database work.
+    if(acquired!==undefined){const remaining=active.get(acquired)!-1;if(remaining)active.set(acquired,remaining);else active.delete(acquired);total--;}
+   });
+   const reply=await Promise.race([work,cancelled]);
    if(!res.destroyed)res.status(reply.code).json(reply.body);
   }catch{if(!res.destroyed)res.status(controller.signal.aborted?503:status).json({error:controller.signal.aborted?"BILLING_UNAVAILABLE":error});}
   finally{
-   if(acquired!==undefined){const remaining=active.get(acquired)!-1;if(remaining)active.set(acquired,remaining);else active.delete(acquired);total--;}
    clearTimeout(timer);controller.signal.removeEventListener("abort",aborted);res.removeListener("close",disconnected);
   }
  };
