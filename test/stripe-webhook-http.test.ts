@@ -70,3 +70,24 @@ test("configuration stays unavailable without secret and rejects unsafe partial 
  const env={PAYMENT_PROVIDER:"stripe",STRIPE_SECRET_KEY:"sk_live_synthetic",STRIPE_WEBHOOK_SECRET:secret,NODE_ENV:"production"};assert.equal(configuredStripeWebhookOptions(f.entitlements,env).expectedLiveMode,true);
  assert.throws(()=>configuredStripeWebhookOptions(f.entitlements,{...env,STRIPE_SECRET_KEY:"sk_test_synthetic"}),/NOT_CONFIGURED/);
 });
+for(const lateFailure of [false,true])test(`webhook timeout retains session and global admission until late ${lateFailure?"failure":"success"}`,async()=>{
+ const f=await fixture();let entered!:()=>void,release!:()=>void,calls=0;
+ const started=new Promise<void>(done=>{entered=done;}),held=new Promise<void>(done=>{release=done;}),verify=f.payments.verifyPayment;
+ f.payments.verifyPayment=async ref=>{if(++calls===1){entered();await held;if(lateFailure)throw new Error("PRIVATE_LATE_FAILURE");}return verify(ref);};
+ await server({...configured(f),timeoutMs:100,concurrency:{perCustomer:1,total:1}},async url=>{
+  const pending=post(url);await started;assert.equal((await pending).status,503);
+  try{for(const body of [event(),{...event(),id:"evt_second",data:{object:{...event().data.object,id:"cs_test_other"}}}]){const blocked=await post(url,JSON.stringify(body));assert.equal(blocked.status,503);assert.deepEqual(await blocked.json(),{error:"STRIPE_WEBHOOK_BUSY"});}assert.equal(calls,1);}finally{release();}
+  await new Promise(done=>setImmediate(done));assert.equal(await f.licenses.getByUserId("a"),null);assert.equal((await post(url)).status,200);assert.equal(calls,2);
+ });
+});
+test("timed-out ledger application retains admission and replay grants one term",async()=>{
+ const f=await fixture();let entered!:()=>void,release!:()=>void;
+ const started=new Promise<void>(done=>{entered=done;}),held=new Promise<void>(done=>{release=done;}),apply=f.ledger.apply.bind(f.ledger);let calls=0;
+ f.ledger.apply=async input=>{if(++calls===1){entered();await held;}return apply(input);};
+ await server({...configured(f),timeoutMs:100,concurrency:{perCustomer:1,total:1}},async url=>{
+  const pending=post(url);await started;assert.equal((await pending).status,503);
+  try{const blocked=await post(url);assert.equal(blocked.status,503);assert.deepEqual(await blocked.json(),{error:"STRIPE_WEBHOOK_BUSY"});assert.equal(calls,1);}finally{release();}
+  await new Promise(done=>setImmediate(done));const license=await f.licenses.getByUserId("a");assert.ok(license);
+  assert.equal((await post(url)).status,200);assert.equal((await f.licenses.getByUserId("a"))?.expiresAt.getTime(),license.expiresAt.getTime());assert.equal(calls,2);
+ });
+});

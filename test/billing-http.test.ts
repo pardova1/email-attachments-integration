@@ -79,3 +79,27 @@ test("billing capacity blocks overlap and releases slots after checkout failure"
   release();const failed=await pending;assert.equal(failed.status,503);assert.deepEqual(await failed.json(),{error:"BILLING_UNAVAILABLE"});assert.equal((await post(`${base}/checkout`,checkout)).status,201);
  });
 });
+for(const kind of ["checkout","confirm-payment"] as const)for(const lateFailure of [false,true])test(`${kind} timeout retains global and customer admission until late ${lateFailure?"failure":"success"}`,async()=>{
+ const f=await fixture();let entered!:()=>void,release!:()=>void,calls=0;
+ const started=new Promise<void>(done=>{entered=done;}),held=new Promise<void>(done=>{release=done;});
+ const hold=async()=>{if(++calls===1){entered();await held;if(lateFailure)throw new Error("PRIVATE_LATE_FAILURE");}};
+ const create=f.payments.createCheckout,verify=f.payments.verifyPayment;
+ if(kind==="checkout")f.payments.createCheckout=async input=>{await hold();return create(input);};
+ else f.payments.verifyPayment=async ref=>{await hold();return verify(ref);};
+ await server({...f,timeoutMs:100,concurrency:{perCustomer:1,total:1}},async base=>{
+  const body=kind==="checkout"?checkout:confirmation,pending=post(`${base}/${kind}`,body);await started;assert.equal((await pending).status,503);
+  try{for(const token of ["a","b"]){const blocked=await post(`${base}/${kind}`,body,token);assert.equal(blocked.status,503);assert.deepEqual(await blocked.json(),{error:"BILLING_BUSY"});}assert.equal(calls,1);}finally{release();}
+  await new Promise(done=>setImmediate(done));assert.equal(await f.licenses.getByUserId("a"),null);
+  assert.equal((await post(`${base}/${kind}`,body)).status,kind==="checkout"?201:200);assert.equal(calls,2);
+ });
+});
+test("disconnected checkout retains the customer's slot while other customers may proceed",async()=>{
+ const {request}=await import("node:http"),f=await fixture();let entered!:()=>void,release!:()=>void,aborted!:()=>void,calls=0;
+ const started=new Promise<void>(done=>{entered=done;}),held=new Promise<void>(done=>{release=done;}),cancelled=new Promise<void>(done=>{aborted=done;}),create=f.payments.createCheckout;
+ f.payments.createCheckout=async input=>{if(++calls===1){entered();await held;}return create(input);};
+ await server({...f,concurrency:{perCustomer:1,total:2},authenticator:{async authenticate(...args){args[1]?.addEventListener("abort",aborted,{once:true});return f.authenticator.authenticate(args[0]);}}},async base=>{
+  const pending=request(`${base}/checkout`,{method:"POST",headers:{authorization:"Bearer a","content-type":"application/json"}},()=>{});pending.on("error",()=>{});pending.end(JSON.stringify(checkout));await started;pending.destroy();await cancelled;
+  try{const blocked=await post(`${base}/checkout`,checkout);assert.equal(blocked.status,503);assert.deepEqual(await blocked.json(),{error:"BILLING_BUSY"});assert.equal((await post(`${base}/checkout`,checkout,"b")).status,201);assert.equal(calls,2);}finally{release();}
+  await new Promise(done=>setImmediate(done));assert.equal((await post(`${base}/checkout`,checkout)).status,201);assert.equal(calls,3);
+ });
+});

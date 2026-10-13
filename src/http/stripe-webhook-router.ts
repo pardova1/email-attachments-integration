@@ -45,11 +45,18 @@ export function createStripeWebhookRouter(options:StripeWebhookOptions){
   const cancelled=new Promise<never>((_resolve,reject)=>{aborted=()=>reject(new Error("STRIPE_WEBHOOK_UNAVAILABLE"));controller.signal.addEventListener("abort",aborted,{once:true});});
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
-   await Promise.race([options.entitlements.activateFromPayment(`stripe-checkout:${checkout.id}`,undefined,{expectedUserId:checkout.metadata.user_id,beforeApply:()=>controller.signal.throwIfAborted()}),cancelled]);
+   const work=Promise.resolve().then(()=>{
+    controller.signal.throwIfAborted();
+    return options.entitlements.activateFromPayment(`stripe-checkout:${checkout.id}`,undefined,{expectedUserId:checkout.metadata.user_id,beforeApply:()=>controller.signal.throwIfAborted()});
+   }).finally(()=>{
+    // Keep admission until outstanding work settles, even after the response ends.
+    active.delete(checkout.id);total--;
+   });
+   await Promise.race([work,cancelled]);
    controller.signal.throwIfAborted();
    if(!res.destroyed)res.status(200).json({received:true,handled:true});
   }catch{if(!res.destroyed)res.status(503).json({error:"STRIPE_WEBHOOK_UNAVAILABLE"});}
-  finally{clearTimeout(timer);controller.signal.removeEventListener("abort",aborted);res.removeListener("close",disconnected);active.delete(checkout.id);total--;}
+  finally{clearTimeout(timer);controller.signal.removeEventListener("abort",aborted);res.removeListener("close",disconnected);}
  });
  const parserErrors:ErrorRequestHandler=(error,_req,res,_next)=>{res.setHeader("Cache-Control","no-store");res.status(error?.type==="entity.too.large"?413:400).json({error:"STRIPE_WEBHOOK_REJECTED"});};router.use(parserErrors);
  return router;
