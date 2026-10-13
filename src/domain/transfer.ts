@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-export const INITIAL_MAX_TRANSFER_BYTES = 500 * 1024 ** 3;
-export const DEFAULT_CHUNK_BYTES = 64 * 1024 ** 2;
-export const MAX_CHUNK_BYTES = DEFAULT_CHUNK_BYTES;
+import {INITIAL_MAX_TRANSFER_BYTES,DEFAULT_CHUNK_BYTES,MAX_CHUNK_BYTES} from "./transfer-limits.js";
+export {INITIAL_MAX_TRANSFER_BYTES,DEFAULT_CHUNK_BYTES,MAX_CHUNK_BYTES} from "./transfer-limits.js";
 export const ACTIVE_TRANSFER_EXPIRATION_HOURS = 4;
 export const TRANSFER_EXPIRATION_MS = ACTIVE_TRANSFER_EXPIRATION_HOURS * 60 * 60 * 1000;
 export const FUTURE_EXPIRATION_OPTIONS_HOURS = [24] as const;
