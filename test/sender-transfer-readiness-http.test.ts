@@ -28,7 +28,7 @@ async function configuration(){
   assert.equal(context.networkAddress,"127.0.0.1");assert.ok(context.requestReference.startsWith("send-request:"));
   return new AutomaticConnectionCoordinator({async discover(){return {environment,observedAt:now.toISOString(),sourceReference:"synthetic"};}},{async toolsFor(){return tools;}},new GlobalConnectionReadinessAgent(),()=>now,10_000,undefined,customer.userId);
  };
- return {sends,senderAccess,coordinatorFor,clock:()=>now,entitlements,transfers,tools,get creates(){return creates;},expire(){now=new Date(now.getTime()+5*60*1000);},withdraw(){withdrawn=true;}};
+ return {sends,senderAccess,coordinatorFor,clock:()=>now,entitlements,transfers,tools,licenses,advance(milliseconds:number){now=new Date(now.getTime()+milliseconds);},get creates(){return creates;},expire(){now=new Date(now.getTime()+5*60*1000);},withdraw(){withdrawn=true;}};
 }
 async function withServer(options:SenderTransferRouterOptions,run:(url:string)=>Promise<void>){
  const app=express();app.use(express.json());app.use("/v1/transfers",createSenderTransferRouter(options));const server=app.listen(0,"127.0.0.1");await new Promise<void>(resolve=>server.once("listening",resolve));
@@ -106,4 +106,9 @@ test("client disconnect during licensing cancels creation before any durable tra
  await withServer({authenticator,...configured,async coordinatorFor(...args){args[2].addEventListener("abort",aborted,{once:true});return configured.coordinatorFor(...args);}},async url=>{
   const pending=request(url,{method:"POST",headers:{authorization:"Bearer sender-a","content-type":"application/json"}},()=>{});pending.on("error",()=>{});pending.end(JSON.stringify(input));await started;pending.destroy();await cancelled;release();await new Promise(resolve=>setImmediate(resolve));assert.equal(configured.creates,0);
  });
+});
+test("HTTP creation rechecks a live license clock after the repository wait",async()=>{
+ const configured=await configuration(),license=await configured.licenses.getByUserId("sender-a");assert.ok(license);license.expiresAt=new Date(configured.clock().getTime()+1000);
+ const read=configured.licenses.listByUserId.bind(configured.licenses);configured.licenses.listByUserId=async userId=>{const rows=await read(userId);configured.advance(1001);return rows;};
+ await withServer({authenticator,...configured},async url=>{const reply=await post(url);assert.equal(reply.status,403);assert.deepEqual(await reply.json(),{error:"ACTIVE_LICENSE_REQUIRED",note:"Please renew your service."});assert.equal(configured.creates,0);});
 });

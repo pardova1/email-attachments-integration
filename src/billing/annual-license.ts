@@ -3,6 +3,7 @@ export const BUSINESS_ANNUAL_LICENSE_USD_CENTS = 1000;
 export const ANNUAL_LICENSE_USD_CENTS = INDIVIDUAL_ANNUAL_LICENSE_USD_CENTS;
 export const LICENSE_TERM_DAYS = 365;
 export type LicensePlan = "individual" | "business";
+export type LicenseCheckTime = Date | (()=>Date);
 
 export interface AnnualLicense {
   userId: string;
@@ -27,4 +28,7 @@ export function createAnnualLicense(userId:string, paidAt=new Date(), plan:Licen
     amountPaidUsdCents:priceForPlan(plan), status:"active"
   };
 }
-export function isLicenseActive(license:AnnualLicense,now=new Date()){return license.status==="active"&&now.getTime()<license.expiresAt.getTime();}
+export function isLicenseActive(license:AnnualLicense,now=new Date()){
+  const time=now.getTime(),start=license.startsAt.getTime(),end=license.expiresAt.getTime();
+  return license.status==="active"&&Number.isFinite(time)&&Number.isFinite(start)&&Number.isFinite(end)&&start<=time&&time<end;
+}
