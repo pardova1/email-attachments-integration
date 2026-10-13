@@ -9,13 +9,14 @@ import {connectionConcurrency,type ConnectionConcurrency} from "../config/connec
 export interface BillingRouterOptions {
  authenticator:ConnectionCheckRouterOptions["authenticator"];
  payments:PaymentProvider;
- entitlements:Pick<EntitlementService,"activateFromPayment">;
+ entitlements:Pick<EntitlementService,"activateFromPayment">&Partial<Pick<EntitlementService,"licenseStatus">>;
  allowedOrigins?:string[];
  timeoutMs?:number;
  concurrency?:ConnectionConcurrency;
 }
 const checkout=z.object({plan:z.enum(["individual","business"]),requestId:z.uuid()}).strict();
 const confirmation=z.object({providerReference:z.string().regex(/^stripe-checkout:cs_(test|live)_[A-Za-z0-9]+$/)}).strict();
+const statusInput=z.object({}).strict();
 export function billingOriginsFromEnvironment(env:NodeJS.ProcessEnv=process.env){return env.BILLING_ALLOWED_ORIGINS===undefined?[]:env.BILLING_ALLOWED_ORIGINS.split(",").map(value=>value.trim());}
 
 // Identity comes exclusively from Bearer authentication. Provider verification
@@ -25,7 +26,7 @@ export function createBillingRouter(options:BillingRouterOptions){
  if(!Number.isInteger(timeout)||timeout<1||timeout>120_000)throw new Error("INVALID_BILLING_TIMEOUT");
  const origins=new Set((options.allowedOrigins??[]).map(value=>{const url=new URL(value);if(url.protocol!=="https:"||url.origin!==value||url.username||url.password)throw new Error("INVALID_BILLING_ORIGIN");return value;}));
  const limits=connectionConcurrency(options.concurrency),active=new Map<string,number>();let total=0;
- const handle=(kind:"checkout"|"confirmation"):RequestHandler=>async(req,res)=>{
+ const handle=(kind:"checkout"|"confirmation"|"status"):RequestHandler=>async(req,res)=>{
   res.setHeader("Cache-Control","no-store");
   const controller=new AbortController();let acquired:string|undefined,status=503,error="BILLING_UNAVAILABLE";
   const disconnected=()=>{if(!res.writableFinished)controller.abort();};res.once("close",disconnected);
@@ -42,11 +43,16 @@ export function createBillingRouter(options:BillingRouterOptions){
     catch{reject(401,"SENDER_AUTHENTICATION_REQUIRED");}
     controller.signal.throwIfAborted();
     if(!req.is("application/json"))reject(415,"BILLING_JSON_REQUIRED");
-    const parsed=(kind==="checkout"?checkout:confirmation).safeParse(req.body);
+    const parsed=(kind==="checkout"?checkout:kind==="confirmation"?confirmation:statusInput).safeParse(req.body);
     if(!parsed.success)reject(400,"INVALID_BILLING_REQUEST");
     const userId=customer!.userId;
     if(total>=limits.total||(active.get(userId)??0)>=limits.perCustomer)reject(503,"BILLING_BUSY");
     acquired=userId;active.set(userId,(active.get(userId)??0)+1);total++;
+    if(kind==="status"){
+     if(!options.entitlements.licenseStatus)throw new Error("LICENSE_STATUS_UNAVAILABLE");
+     const result=await options.entitlements.licenseStatus(userId);
+     controller.signal.throwIfAborted();return {code:200,body:result};
+    }
     if(kind==="checkout"){
      const input=checkout.parse(parsed.data);
      const result=await options.payments.createCheckout({userId,plan:input.plan,product:"annual-license",amountUsdCents:priceForPlan(input.plan),requestId:input.requestId});
@@ -74,5 +80,5 @@ export function createBillingRouter(options:BillingRouterOptions){
    clearTimeout(timer);controller.signal.removeEventListener("abort",aborted);res.removeListener("close",disconnected);
   }
  };
- router.post("/checkout",handle("checkout"));router.post("/confirm-payment",handle("confirmation"));return router;
+ router.post("/checkout",handle("checkout"));router.post("/confirm-payment",handle("confirmation"));router.post("/license-status",handle("status"));return router;
 }

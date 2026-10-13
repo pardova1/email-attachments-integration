@@ -1,6 +1,6 @@
 # Authenticated billing HTTP API
 
-The server mounts two JSON endpoints under `/v1/billing`. Both require a sender Bearer token verified by the configured authenticator. Identity comes from authentication, not JSON, cookies or query strings. Responses use `Cache-Control: no-store` and mask private provider errors. These APIs create/confirm payments; they do not expose card data or Stripe server credentials.
+The server mounts three JSON endpoints under `/v1/billing`. Both require a sender Bearer token verified by the configured authenticator. Identity comes from authentication, not JSON, cookies or query strings. Responses use `Cache-Control: no-store` and mask private provider errors. These APIs read license status and create/confirm payments; they do not expose card data or Stripe server credentials.
 
 ## Start checkout
 
@@ -26,11 +26,17 @@ The existing payment application ledger grants one term per distinct payment ref
 
 An embeddable host-session browser panel is available; see [browser billing](browser-billing.md).
 
+## Read saved license status
+
+`POST /v1/billing/license-status` with the strict JSON body `{}` returns `{checkedAt, licenses}` for the authenticated account. Each license includes only `plan`, `startsAt`, `expiresAt`, `amountPaidUsdCents`, stored `status`, and derived `active`. No user ID, license name, payment reference, or another account’s records are returned. `active` requires stored active status, a reached start time, and an expiration strictly after `checkedAt`. Expired/future-start licenses can remain in the response with `active: false`; the lookup does not change stored state, apply payments, or renew terms. A successful empty list means no saved licenses. An unavailable/malformed/foreign-customer repository result returns generic 503, never an invented empty list.
+
+This route shares billing admission and its response deadline. A timed-out read retains its acquired slot until the underlying operation settles. The view is a snapshot at `checkedAt`, not new payment evidence or a replacement for server-side entitlement checks.
+
 ## Request controls
 
 Set `BILLING_ALLOWED_ORIGINS` to comma-separated exact HTTPS origins for browser callers, including the app origin for a same-origin deployment. Origin-bearing requests outside this list are rejected. Originless native/server requests still require Bearer authentication. No browser origins are allowed by default. This allowlist does not add cross-origin CORS support; use a same-origin deployment or a separately reviewed CORS setup.
 
-Billing shares the configured `CONNECTION_MAX_ACTIVE_TOTAL` and `CONNECTION_MAX_ACTIVE_PER_CUSTOMER` settings, snapshotted when its router is mounted. Billing's budget is independent of connection/transfer budgets and applies jointly to its two endpoints per server instance. Default limits are 100 total and one active request per customer. Busy requests receive HTTP 503 `BILLING_BUSY` without starting provider work.
+Billing shares the configured `CONNECTION_MAX_ACTIVE_TOTAL` and `CONNECTION_MAX_ACTIVE_PER_CUSTOMER` settings, snapshotted when its router is mounted. Billing's budget is independent of connection/transfer budgets and applies jointly to its three endpoints per server instance. Default limits are 100 total and one active request per customer. Busy requests receive HTTP 503 `BILLING_BUSY` without starting provider work.
 
 The router has a 30-second deadline by default (its composition accepts 1–120,000 ms), propagates cancellation to authentication, and rechecks timeout/disconnection after provider verification immediately before the ledger call. A late verification cannot start a license application. An already-started provider checkout or database transaction cannot be undone by disconnecting; retry/reconcile using the same request ID/reference. Provider calls have their own bounded deadline and do not automatically retry. Response timers/listeners are released on completion, failure, timeout or disconnect. An acquired capacity slot is released only when the underlying provider/ledger operation settles. A timed-out or disconnected request therefore continues to count against both limits while its work is outstanding; retries receive `BILLING_BUSY` without starting another provider operation. Authentication before admission is outside this budget. A dependency that never settles keeps its slot until the server restarts; production dependencies must retain their own bounded deadlines.
 

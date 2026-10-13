@@ -5,8 +5,10 @@ const reference=z.string().regex(/^stripe-checkout:cs_(test|live)_[A-Za-z0-9]+$/
 const checkoutInput=z.object({plan,requestId:z.uuid()}).strict();
 const checkoutResult=z.object({checkoutId:z.string().regex(/^cs_(test|live)_[A-Za-z0-9]+$/),providerReference:reference,checkoutUrl:z.string().url()}).strict();
 const licenseResult=z.object({plan,startsAt:z.iso.datetime(),expiresAt:z.iso.datetime(),amountPaidUsdCents:z.number().int(),status:z.enum(["active","expired"])}).strict();
+const statusResult=z.object({checkedAt:z.iso.datetime(),licenses:z.array(licenseResult.extend({active:z.boolean()}).strict()).max(2)}).strict();
 export type BillingCheckout=z.infer<typeof checkoutResult>;
 export type BillingLicense=z.infer<typeof licenseResult>;
+export type BillingLicenseStatus=z.infer<typeof statusResult>;
 export type BillingErrorCode="AUTHENTICATION_REQUIRED"|"REQUEST_REJECTED"|"PAYMENT_REJECTED"|"BILLING_BUSY"|"BILLING_UNAVAILABLE"|"INVALID_RESPONSE";
 export class BillingClientError extends Error {
  constructor(readonly code:BillingErrorCode){super(code);this.name="BillingClientError";}
@@ -32,6 +34,18 @@ export class BillingClient {
   const parsed=licenseResult.safeParse(await this.send("confirm-payment",{providerReference},200,signal));
   if(!parsed.success||parsed.data.amountPaidUsdCents!==priceForPlan(parsed.data.plan)||Date.parse(parsed.data.expiresAt)<=Date.parse(parsed.data.startsAt))throw new BillingClientError("INVALID_RESPONSE");
   return parsed.data;
+ }
+ async licenseStatus(signal?:AbortSignal):Promise<BillingLicenseStatus>{
+  const parsed=statusResult.safeParse(await this.send("license-status",{},200,signal));
+  if(!parsed.success)throw new BillingClientError("INVALID_RESPONSE");
+  const value=parsed.data,time=Date.parse(value.checkedAt),plans=new Set<string>();
+  if(time>Date.now()+60_000||time<Date.now()-300_000)throw new BillingClientError("INVALID_RESPONSE");
+  for(const item of value.licenses){
+   const start=Date.parse(item.startsAt),end=Date.parse(item.expiresAt);
+   if(plans.has(item.plan)||item.amountPaidUsdCents!==priceForPlan(item.plan)||end<=start||item.active!==(item.status==="active"&&start<=time&&time<end))throw new BillingClientError("INVALID_RESPONSE");
+   plans.add(item.plan);
+  }
+  return value;
  }
  private async send(path:string,input:unknown,success:number,external?:AbortSignal):Promise<unknown>{
   external?.throwIfAborted();const controller=new AbortController(),signal=external?AbortSignal.any([external,controller.signal]):controller.signal;
