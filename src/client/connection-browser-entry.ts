@@ -1,4 +1,8 @@
-// Browser entry: deliberately exports only client-side connection components.
+// Browser entry: exports client-side connection and billing components only.
+export {BillingClient,BillingClientError} from "./billing-client.js";
+export type {BillingCheckout,BillingLicense,BillingErrorCode} from "./billing-client.js";
+export {mountSessionBilling,BILLING_LABELS} from "./billing-session-view.js";
+export type {SessionBillingOptions} from "./billing-session-view.js";
 export {ConnectionCheckClient,ConnectionClientError} from "./connection-check-client.js";
 export type {ConnectionCheckInput,ConnectionSelectionInput,ConnectionClientResult} from "./connection-check-client.js";
 export {mountConnectionAssistance} from "./connection-form-view.js";

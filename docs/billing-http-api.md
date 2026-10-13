@@ -24,6 +24,8 @@ The server re-fetches payment evidence through the provider. The verified refere
 
 The existing payment application ledger grants one term per distinct payment reference. Repeated confirmation returns current license state without another term. A distinct valid payment extends the existing license; initial purchases and renewals use the same durable ledger. A payment mismatch returns generic HTTP 409 `PAYMENT_CONFIRMATION_REJECTED` without exposing another customer's identity or license.
 
+An embeddable host-session browser panel is available; see [browser billing](browser-billing.md).
+
 ## Request controls
 
 Set `BILLING_ALLOWED_ORIGINS` to comma-separated exact HTTPS origins for browser callers, including the app origin for a same-origin deployment. Origin-bearing requests outside this list are rejected. Originless native/server requests still require Bearer authentication. No browser origins are allowed by default. This allowlist does not add cross-origin CORS support; use a same-origin deployment or a separately reviewed CORS setup.
