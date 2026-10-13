@@ -1,4 +1,4 @@
-import { planForAmount } from "./annual-license.js";
+import { planForAmount,isLicenseActive,type LicenseCheckTime } from "./annual-license.js";
 import type { LicensePaymentApplicationRepository } from "./license-payment-application-repository.js";
 import type { LicenseRepository } from "./license-repository.js";
 import type { PaymentProvider } from "./payment-provider.js";
@@ -11,7 +11,7 @@ export class EntitlementService {
       const start=license.startsAt.getTime(),end=license.expiresAt.getTime();
       if(license.userId!==userId||!["individual","business"].includes(license.plan)||plans.has(license.plan)||!["active","expired"].includes(license.status)||!Number.isFinite(start)||!Number.isFinite(end)||end<=start||planForAmount(license.amountPaidUsdCents)!==license.plan)throw new Error("LICENSE_STATUS_UNAVAILABLE");
       plans.add(license.plan);
-      return {plan:license.plan,startsAt:license.startsAt.toISOString(),expiresAt:license.expiresAt.toISOString(),amountPaidUsdCents:license.amountPaidUsdCents,status:license.status,active:license.status==="active"&&start<=time&&time<end};
+      return {plan:license.plan,startsAt:license.startsAt.toISOString(),expiresAt:license.expiresAt.toISOString(),amountPaidUsdCents:license.amountPaidUsdCents,status:license.status,active:isLicenseActive(license,now)};
     }).sort((a,b)=>a.plan.localeCompare(b.plan));
     return {checkedAt:now.toISOString(),licenses};
   }
@@ -25,10 +25,11 @@ export class EntitlementService {
     context?.beforeApply();
     return (await this.applications.apply({providerReference,userId:payment.userId,plan,licenseName,amountPaidUsdCents:payment.amountUsdCents,paidAt:payment.paidAt})).license;
   }
-  async requireActive(userId:string,now=new Date(),plan?:import("./annual-license.js").LicensePlan){
+  async requireActive(userId:string,now:LicenseCheckTime=()=>new Date(),plan?:import("./annual-license.js").LicensePlan){
     const candidates=plan ? [await this.licenses.getByUserIdAndPlan(userId,plan)] : await this.licenses.listByUserId(userId);
-    const { isLicenseActive }=await import("./annual-license.js");
-    const license=candidates.find(x=>x&&isLicenseActive(x,now));
+    // Sample a live clock only after the repository read has completed.
+    const at=typeof now==="function"?now():now;
+    const license=candidates.find(x=>x&&x.userId===userId&&(!plan||x.plan===plan)&&isLicenseActive(x,at));
     if(!license) throw new Error("ACTIVE_LICENSE_REQUIRED"); return license;
   }
 }

@@ -73,7 +73,7 @@ export function createSenderTransferRouter(options:SenderTransferRouterOptions){
     requireCurrent();
     // Licensing can await remote state. Check expiry/withdrawal/cancellation
     // again after that await, immediately before durable transfer creation.
-    try{return await options.sends.createForValidUser(scope,input,clock(),requireCurrent);}
+    try{return await options.sends.createForValidUser(scope,input,clock,requireCurrent);}
     catch(cause){
      if(cause instanceof Error&&cause.message==="ACTIVE_LICENSE_REQUIRED"){status=403;error="ACTIVE_LICENSE_REQUIRED";}
      else if(!(cause instanceof Error&&cause.message==="SEND_CONNECTION_NOT_READY"))error="TRANSFER_CREATION_UNAVAILABLE";

@@ -2,6 +2,10 @@
 
 Creating a transfer requires the sender's authenticated account and an active license. Once creation and private-key setup succeed, the response includes `uploadToken`, signed for that transfer ID with `upload` scope and the existing upload deadline.
 
+An active license must have stored active status, finite dates, a reached start time, and an expiration strictly after the check time. The entitlement read verifies the returned account and any requested plan. Its default clock is sampled after the repository read completes. The HTTP transfer route supplies a live clock function, and the send service checks the returned license again after the readiness/cancellation callback, immediately before starting durable creation. A license that expires during the read or before this final boundary cannot create a transfer and receives the existing `ACTIVE_LICENSE_REQUIRED` response. No payment is created or renewed by these checks.
+
+`requireActive` and `createForValidUser` still accept an explicit `Date` for deterministic/historical callers; live callers should omit it or supply `()=>new Date()`. A frozen date does not advance while a repository call waits. Checks authorize the start of creation; later expiry does not undo an operation already started or revoke an existing upload token, which retains its own transfer deadline.
+
 Use `Authorization: Bearer <uploadToken>` for part upload, transfer status, and completion requests. The API checks the signature, claim types, deadline, scope, and transfer ID before those handlers run. Missing or invalid credentials return HTTP 401 with `SENDER_TRANSFER_AUTHORIZATION_REQUIRED`. Knowing a transfer ID alone does not authorize these operations.
 
 Recipient links carry a separate `download` token. Download tokens cannot authorize sender operations, and upload tokens cannot authorize downloads. The service also checks authoritative transfer expiration and terminal expired state after token authorization.

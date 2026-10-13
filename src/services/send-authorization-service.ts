@@ -1,6 +1,7 @@
 import type { EntitlementService } from "../billing/entitlement-service.js";
 import type { PrivateLaneLifecycleCoordinator } from "../security/private-lane-lifecycle-coordinator.js";
 import type { TransferService } from "./transfer-service.js";
+import {isLicenseActive,type LicenseCheckTime} from "../billing/annual-license.js";
 
 export class SendAuthorizationService {
   constructor(
@@ -9,9 +10,11 @@ export class SendAuthorizationService {
     private readonly privateLanes?: PrivateLaneLifecycleCoordinator
   ) {}
 
-  async createForValidUser(userId: string, input: Parameters<TransferService["create"]>[0], now = new Date(), beforeCreate?:()=>void) {
-    await this.entitlements.requireActive(userId, now);
+  async createForValidUser(userId: string, input: Parameters<TransferService["create"]>[0], now:LicenseCheckTime = ()=>new Date(), beforeCreate?:()=>void) {
+    const license=await this.entitlements.requireActive(userId, now);
     beforeCreate?.();
+    // No further await between this final time check and starting creation.
+    if(license.userId!==userId||!isLicenseActive(license,typeof now==="function"?now():now))throw new Error("ACTIVE_LICENSE_REQUIRED");
     const transfer = await this.transfers.createDurable(input);
     if (!this.privateLanes) return transfer;
     try {

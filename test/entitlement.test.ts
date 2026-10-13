@@ -44,3 +44,17 @@ test("future starts explicit expiration foreign rows duplicates and malformed li
  base.status="expired";assert.equal((await service.licenseStatus("a",new Date("2026-11-01T00:00:00Z"))).licenses[0].active,false);
  for(const rows of [[{...base,userId:"b"}],[base,base],[{...base,amountPaidUsdCents:1}],[{...base,startsAt:new Date("invalid")}],[{...base,expiresAt:base.startsAt}]]){licenses.listByUserId=async()=>rows;await assert.rejects(service.licenseStatus("a",at));}
 });
+test("active authorization samples its clock after a delayed repository read",async()=>{
+ const {createAnnualLicense}=await import("../src/billing/annual-license.js"),licenses=new MemoryLicenseRepository(),license=createAnnualLicense("a",new Date("2026-10-13T00:00:00Z"));await licenses.save(license);
+ let at=new Date(license.expiresAt.getTime()-1),entered!:()=>void,release!:()=>void,clockCalls=0;
+ const started=new Promise<void>(done=>{entered=done;}),held=new Promise<void>(done=>{release=done;}),read=licenses.listByUserId.bind(licenses);
+ licenses.listByUserId=async userId=>{entered();await held;return read(userId);};
+ const service=new EntitlementService({async createCheckout(){throw new Error("UNUSED");},async verifyPayment(){throw new Error("UNUSED");}},licenses);
+ const pending=service.requireActive("a",()=>{clockCalls++;return at;});await started;assert.equal(clockCalls,0);at=license.expiresAt;release();await assert.rejects(pending,/ACTIVE_LICENSE_REQUIRED/);assert.equal(clockCalls,1);
+});
+test("active authorization rejects another account's row and future-start license",async()=>{
+ const {createAnnualLicense}=await import("../src/billing/annual-license.js"),licenses=new MemoryLicenseRepository(),license=createAnnualLicense("a",new Date("2026-10-13T00:00:00Z")),service=new EntitlementService({async createCheckout(){throw new Error("UNUSED");},async verifyPayment(){throw new Error("UNUSED");}},licenses);
+ licenses.listByUserId=async()=>[{...license,userId:"b"}];await assert.rejects(service.requireActive("a",license.startsAt),/ACTIVE_LICENSE_REQUIRED/);
+ licenses.listByUserId=async()=>[license];await assert.rejects(service.requireActive("a",new Date(license.startsAt.getTime()-1)),/ACTIVE_LICENSE_REQUIRED/);
+ licenses.getByUserIdAndPlan=async()=>({...license,plan:"business"});await assert.rejects(service.requireActive("a",license.startsAt,"individual"),/ACTIVE_LICENSE_REQUIRED/);
+});
