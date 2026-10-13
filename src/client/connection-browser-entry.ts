@@ -1,4 +1,6 @@
 // Browser entry: exports client-side connection and billing components only.
+export {mountSenderAccount} from "./sender-account-view.js";
+export type {SenderAccountOptions} from "./sender-account-view.js";
 export {BillingClient,BillingClientError} from "./billing-client.js";
 export type {BillingCheckout,BillingLicense,BillingLicenseStatus,BillingErrorCode} from "./billing-client.js";
 export {mountSessionBilling,BILLING_LABELS} from "./billing-session-view.js";
