@@ -1,5 +1,7 @@
 # Host-session billing panel
 
+For mounting billing and connection assistance together with a fresh send preflight, see [combined sender account](sender-account-component.md).
+
 The existing standalone browser bundle, `dist/browser/connection-assistance.js`, now exports `BillingClient`, `BillingClientError`, `mountSessionBilling`, and `BILLING_LABELS` alongside connection assistance. It contains no server secrets or Node imports. This is an embeddable component for the application's signed-in host, not a new hosted application or login screen.
 
 ```ts
