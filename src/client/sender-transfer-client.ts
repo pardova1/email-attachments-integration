@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {INITIAL_MAX_TRANSFER_BYTES,DEFAULT_CHUNK_BYTES,MAX_CHUNK_BYTES} from "../domain/transfer-limits.js";
+import {INITIAL_MAX_TRANSFER_BYTES,DEFAULT_CHUNK_BYTES,MAX_CHUNK_BYTES,TRANSFER_EXPIRATION_MS} from "../domain/transfer-limits.js";
 import type {ConnectionApplicationSession} from "./connection-session-view.js";
 const hint=z.string().trim().min(1).max(256).refine(value=>!/[\x00-\x1f\x7f*]/.test(value));
 const selection=z.string().min(1).max(256).optional();
@@ -7,13 +7,18 @@ const inputSchema=z.object({fileName:z.string().min(1).max(1024),contentType:z.s
 const createdSchema=z.object({id:z.uuid(),chunkBytes:z.number().int().positive().max(MAX_CHUNK_BYTES),uploadExpiresAt:z.iso.datetime(),uploadToken:z.string().min(1).max(8192).regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/),senderNotice:z.string().min(1).max(2048),recipientNotice:z.string().min(1).max(2048),uploadPartUrlTemplate:z.string().min(1).max(1024)}).strict();
 export type SenderTransferInput=z.infer<typeof inputSchema>;
 export type CreatedSenderTransfer=z.infer<typeof createdSchema>;
-export type SenderTransferErrorCode="AUTHENTICATION_REQUIRED"|"REQUEST_REJECTED"|"ACTIVE_LICENSE_REQUIRED"|"TRANSFER_UNAVAILABLE"|"INVALID_RESPONSE"|"ACCOUNT_CHANGED"|"CLIENT_DISPOSED"|"TRANSFER_BUSY";
+const progressSchema=z.object({receivedParts:z.number().int().positive(),totalParts:z.number().int().positive(),percent:z.number().int().min(0).max(100),checksumVerified:z.literal(true)}).strict();
+const completedSchema=z.object({objectKey:z.string().min(1).max(2048),sha256:z.string().regex(/^[a-fA-F0-9]{64}$/),totalBytes:z.number().int().positive(),status:z.literal("complete"),verifiedExact:z.literal(true),downloadAvailableAt:z.iso.datetime(),downloadExpiresAt:z.iso.datetime(),recipientNotice:z.string().min(1).max(2048),recipientAccess:z.string().min(1).max(16384)}).strict();
+export type SenderUploadProgress=z.infer<typeof progressSchema>;
+export type CompletedSenderTransfer=z.infer<typeof completedSchema>;
+export type SenderTransferErrorCode="AUTHENTICATION_REQUIRED"|"REQUEST_REJECTED"|"ACTIVE_LICENSE_REQUIRED"|"TRANSFER_UNAVAILABLE"|"INVALID_RESPONSE"|"ACCOUNT_CHANGED"|"CLIENT_DISPOSED"|"TRANSFER_BUSY"|"TRANSFER_NOT_OWNED"|"UPLOAD_EXPIRED"|"INVALID_PART"|"TRANSFER_ALREADY_COMPLETE"|"UPLOAD_AUTHORIZATION_REQUIRED"|"COMPLETION_REJECTED";
 export class SenderTransferClientError extends Error {
  constructor(readonly code:SenderTransferErrorCode){super(code);this.name="SenderTransferClientError";}
 }
-// Metadata-only creation client. File hashing, chunk upload and email composition
-// are separate host responsibilities. Never retries uncertain creation automatically.
+// The host supplies original file hashing and chunk slices. Requests never retry
+// automatically; returned upload capabilities stay bound to this client/session.
 export class SenderTransferClient {
+ private readonly bindings=new WeakMap<CreatedSenderTransfer,{created:CreatedSenderTransfer;input:SenderTransferInput;scope:string;generation:number;completed:boolean}>();
  private readonly base:string;private scope:string|undefined;private generation=0;private disposed=false;private pending:AbortController|undefined;private readonly unsubscribe:()=>void;
  constructor(apiBase:string,private readonly session:ConnectionApplicationSession,private readonly request:typeof fetch=globalThis.fetch,private readonly timeoutMs=40_000){
   const url=new URL(apiBase);
@@ -53,7 +58,51 @@ export class SenderTransferClient {
    if(expires<=Date.now()||created.chunkBytes!==(parsed.data.chunkBytes??DEFAULT_CHUNK_BYTES)||created.uploadPartUrlTemplate!==`/v1/transfers/${created.id}/parts/{partNumber}`)throw new SenderTransferClientError("INVALID_RESPONSE");
    // Structural binding only: the server verifies the token signature on upload.
    try{const payload=created.uploadToken.split(".")[0].replace(/-/g,"+").replace(/_/g,"/");const claims=z.object({transferId:z.literal(created.id),scope:z.literal("upload"),exp:z.literal(Math.floor(expires/1000))}).strict().parse(JSON.parse(atob(payload)));if(claims.exp<=Math.floor(Date.now()/1000))throw new Error();}catch{throw new SenderTransferClientError("INVALID_RESPONSE");}
-   scoped();return created;
+   scoped();this.bindings.set(created,{created:structuredClone(created),input:structuredClone(parsed.data),scope:expected,generation:version,completed:false});return created;
+  })().finally(cancelBody),cancelled]);}catch(error){scoped();if(error instanceof SenderTransferClientError)throw error;throw new SenderTransferClientError("TRANSFER_UNAVAILABLE");}
+  finally{clearTimeout(timer);signal.removeEventListener("abort",aborted);cancelBody();if(this.pending===controller)this.pending=undefined;}
+ }
+ uploadPart(created:CreatedSenderTransfer,partNumber:number,chunk:Blob,external?:AbortSignal):Promise<SenderUploadProgress>{return this.transferOperation(created,{partNumber,chunk},external) as Promise<SenderUploadProgress>;}
+ complete(created:CreatedSenderTransfer,external?:AbortSignal):Promise<CompletedSenderTransfer>{return this.transferOperation(created,undefined,external) as Promise<CompletedSenderTransfer>;}
+ private async transferOperation(created:CreatedSenderTransfer,part:{partNumber:number;chunk:Blob}|undefined,external?:AbortSignal):Promise<SenderUploadProgress|CompletedSenderTransfer>{
+  external?.throwIfAborted();if(this.disposed)throw new SenderTransferClientError("CLIENT_DISPOSED");
+  const binding=this.bindings.get(created),parsed=createdSchema.safeParse(created);
+  if(!binding||!parsed.success||JSON.stringify(parsed.data)!==JSON.stringify(binding.created))throw new SenderTransferClientError("TRANSFER_NOT_OWNED");
+  if(binding.scope!==this.scope||this.current()!==binding.scope||binding.generation!==this.generation)throw new SenderTransferClientError("ACCOUNT_CHANGED");
+  if(this.pending)throw new SenderTransferClientError("TRANSFER_BUSY");
+  const totalParts=Math.ceil(binding.input.totalBytes/binding.created.chunkBytes);
+  if(part){
+   if(binding.completed)throw new SenderTransferClientError("TRANSFER_ALREADY_COMPLETE");
+   if(!Number.isSafeInteger(part.partNumber)||part.partNumber<1||part.partNumber>totalParts||!(part.chunk instanceof Blob)||part.chunk.size!==Math.min(binding.created.chunkBytes,binding.input.totalBytes-(part.partNumber-1)*binding.created.chunkBytes))throw new SenderTransferClientError("INVALID_PART");
+  }
+  const controller=new AbortController();this.pending=controller;
+  const signal=external?AbortSignal.any([external,controller.signal]):controller.signal;
+  const scoped=()=>{signal.throwIfAborted();if(this.disposed)throw new SenderTransferClientError("CLIENT_DISPOSED");if(binding.generation!==this.generation||this.current()!==binding.scope)throw new SenderTransferClientError("ACCOUNT_CHANGED");if(Math.floor(Date.now()/1000)>=Math.floor(Date.parse(binding.created.uploadExpiresAt)/1000))throw new SenderTransferClientError("UPLOAD_EXPIRED");};
+  let response:Response|undefined,reader:ReadableStreamDefaultReader<Uint8Array>|undefined;
+  const cancelBody=()=>{if(reader)void reader.cancel().catch(()=>{});else if(response?.body)void response.body.cancel().catch(()=>{});};
+  let aborted!:()=>void;
+  const cancelled=new Promise<never>((_resolve,reject)=>{aborted=()=>{cancelBody();reject(signal.reason);};signal.addEventListener("abort",aborted,{once:true});});
+  const timer=setTimeout(()=>controller.abort(new SenderTransferClientError("TRANSFER_UNAVAILABLE")),this.timeoutMs);
+  try{return await Promise.race([(async()=>{
+   scoped();let body:Uint8Array|undefined,checksum:string|undefined;
+   if(part){const buffer=await part.chunk.arrayBuffer();scoped();if(buffer.byteLength!==part.chunk.size)throw new SenderTransferClientError("INVALID_PART");body=new Uint8Array(buffer);const digest=await globalThis.crypto.subtle.digest("SHA-256",buffer);scoped();checksum=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,"0")).join("");}
+   const url=`${this.base}/${binding.created.id}/${part?`parts/${part.partNumber}`:"complete"}`;
+   response=await this.request(url,{method:part?"PUT":"POST",signal,credentials:"omit",redirect:"error",cache:"no-store",headers:{authorization:`Bearer ${binding.created.uploadToken}`,...(part?{"content-type":"application/octet-stream","x-content-sha256":checksum!}:{})},...(body?{body:body as BodyInit}:{})});
+   scoped();if(response.redirected)throw new SenderTransferClientError("INVALID_RESPONSE");
+   if(response.status===401)throw new SenderTransferClientError("UPLOAD_AUTHORIZATION_REQUIRED");
+   if(response.status===409&&!part)throw new SenderTransferClientError("COMPLETION_REJECTED");
+   if(response.status!==200)throw new SenderTransferClientError("TRANSFER_UNAVAILABLE");
+   if(!response.body||response.headers.get("content-type")?.split(";")[0].trim().toLowerCase()!=="application/json")throw new SenderTransferClientError("INVALID_RESPONSE");
+   reader=response.body.getReader();const decoder=new TextDecoder("utf-8",{fatal:true});let text="",bytes=0;
+   while(true){const chunk=await reader.read();scoped();if(chunk.done)break;bytes+=chunk.value.byteLength;if(bytes>32*1024)throw new SenderTransferClientError("INVALID_RESPONSE");try{text+=decoder.decode(chunk.value,{stream:true});}catch{throw new SenderTransferClientError("INVALID_RESPONSE");}}
+   let value:unknown;try{value=JSON.parse(text+decoder.decode());}catch{throw new SenderTransferClientError("INVALID_RESPONSE");}
+   if(part){const result=progressSchema.safeParse(value);if(!result.success||result.data.totalParts!==totalParts||result.data.receivedParts>totalParts||result.data.percent!==Math.floor(result.data.receivedParts/totalParts*100))throw new SenderTransferClientError("INVALID_RESPONSE");return result.data;}
+   const result=completedSchema.safeParse(value);if(!result.success)throw new SenderTransferClientError("INVALID_RESPONSE");
+   const completed=result.data,available=Date.parse(completed.downloadAvailableAt),expires=Date.parse(completed.downloadExpiresAt),prefix=`/v1/transfers/${binding.created.id}/download?token=`;
+   if(completed.totalBytes!==binding.input.totalBytes||completed.sha256.toLowerCase()!==binding.input.originalSha256.toLowerCase()||expires-available!==TRANSFER_EXPIRATION_MS||expires<=Date.now()||available>Date.now()+60000||!completed.recipientAccess.startsWith(prefix))throw new SenderTransferClientError("INVALID_RESPONSE");
+   const token=completed.recipientAccess.slice(prefix.length);if(!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token))throw new SenderTransferClientError("INVALID_RESPONSE");
+   try{const payload=token.split(".")[0].replace(/-/g,"+").replace(/_/g,"/");z.object({transferId:z.literal(binding.created.id),scope:z.literal("download"),exp:z.literal(Math.floor(expires/1000))}).strict().parse(JSON.parse(atob(payload)));}catch{throw new SenderTransferClientError("INVALID_RESPONSE");}
+   scoped();binding.completed=true;return completed;
   })().finally(cancelBody),cancelled]);}catch(error){scoped();if(error instanceof SenderTransferClientError)throw error;throw new SenderTransferClientError("TRANSFER_UNAVAILABLE");}
   finally{clearTimeout(timer);signal.removeEventListener("abort",aborted);cancelBody();if(this.pending===controller)this.pending=undefined;}
  }

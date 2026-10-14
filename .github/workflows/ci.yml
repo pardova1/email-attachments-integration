@@ -56,6 +56,7 @@ jobs:
           test/send-authorization.test.ts
           test/stripe-webhook-http.test.ts
           test/sender-transfer-client.test.ts
+          test/sender-transfer-upload-client.test.ts
           test/sender-account-view.test.ts
           test/billing-client.test.ts
           test/billing-session-view.test.ts

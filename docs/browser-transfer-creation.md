@@ -37,3 +37,7 @@ Creation responses require strict JSON within 16 KiB. The client checks transfer
 Creation has no automatic retry. The current API has no creation idempotency key: timeout, disconnect or an account switch cannot undo a server operation already started, and blindly repeating creation can make another transfer. Reconciliation/idempotent creation and cleanup remain separate work. Completed uploads still need chunk checksums, completion verification and the recipient flow. Host mounting, file selection/streaming hashes, chunk upload, composer integration, providers, credentials, hosting, real-device testing and worldwide validation remain unfinished.
 
 Regression coverage includes metadata/size limits without allocating giant files, fresh tokens, response capability/path validation, account races, cancellation, bounded waits/body decoding, error privacy, overlapping calls and teardown. A local HTTP test uses synthetic connection probes and an in-memory license/transfer, and checks the server-issued upload token. It does not send a real file, email, provider payment or external probe.
+
+## Upload and completion follow-up
+
+The same client now supports scoped chunk upload and exact completion; see [browser upload contracts and remaining host responsibilities](browser-transfer-upload.md). Preserve the original object returned by `create` for these operations. The host still supplies the original whole-file hash and chunk slices.

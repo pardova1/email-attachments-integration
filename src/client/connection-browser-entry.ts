@@ -1,6 +1,6 @@
 // Browser entry: exports client-side connection and billing components only.
 export {SenderTransferClient,SenderTransferClientError} from "./sender-transfer-client.js";
-export type {SenderTransferInput,CreatedSenderTransfer,SenderTransferErrorCode} from "./sender-transfer-client.js";
+export type {SenderTransferInput,CreatedSenderTransfer,SenderTransferErrorCode,SenderUploadProgress,CompletedSenderTransfer} from "./sender-transfer-client.js";
 export {mountSenderAccount} from "./sender-account-view.js";
 export type {SenderAccountOptions} from "./sender-account-view.js";
 export {BillingClient,BillingClientError} from "./billing-client.js";
