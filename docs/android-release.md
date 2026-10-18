@@ -23,7 +23,7 @@ server's verified completion/expiration response.
 ## Build
 
 Open `android/` in Android Studio, or install JDK 17 and the Android SDK and set
-`ANDROID_HOME`. The pinned tools are AGP 8.13.2, Gradle 8.13, compile/target SDK 36,
+`ANDROID_HOME`. The pinned tools are AGP 8.13.2, Gradle 8.14.6, compile/target SDK 36,
 Build Tools 35.0.0, and minimum SDK 26. The Gradle wrapper verifies the distribution's
 SHA-256 before executing it.
 
