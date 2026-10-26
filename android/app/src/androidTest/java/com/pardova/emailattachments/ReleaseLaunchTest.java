@@ -1,5 +1,6 @@
 package com.pardova.emailattachments;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Intent;
@@ -14,6 +15,15 @@ import static org.junit.Assert.*;
 /** Runs against the actual minified release, signed only with a test key in CI. */
 @RunWith(AndroidJUnit4.class)
 public final class ReleaseLaunchTest {
+    // The optimized target may remove its generated R classes. Resolve the
+    // installed resources without retaining production classes just for tests.
+    @SuppressLint("DiscouragedApi")
+    private int resource(Activity activity, String type, String name) {
+        int id = activity.getResources().getIdentifier(name, type, activity.getPackageName());
+        assertTrue("Missing installed resource: " + type + "/" + name, id != 0);
+        return id;
+    }
+
     private Activity launch(Intent intent) {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         intent.setClassName(instrumentation.getTargetContext(),
@@ -26,10 +36,10 @@ public final class ReleaseLaunchTest {
         Activity activity = launch(new Intent(Intent.ACTION_MAIN));
         try {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
-                TextView status = activity.findViewById(R.id.transfer_status);
-                assertEquals(activity.getString(R.string.development_status), status.getText().toString());
-                TextView details = activity.findViewById(R.id.file_details);
-                assertEquals(activity.getString(R.string.no_file), details.getText().toString());
+                TextView status = activity.findViewById(resource(activity, "id", "transfer_status"));
+                assertEquals(activity.getString(resource(activity, "string", "development_status")), status.getText().toString());
+                TextView details = activity.findViewById(resource(activity, "id", "file_details"));
+                assertEquals(activity.getString(resource(activity, "string", "no_file")), details.getText().toString());
             });
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(activity::finish);
@@ -41,10 +51,10 @@ public final class ReleaseLaunchTest {
                 .putExtra(Intent.EXTRA_STREAM, Uri.parse("file:///private/not-readable.mp4")));
         try {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
-                TextView details = activity.findViewById(R.id.file_details);
-                assertEquals(activity.getString(R.string.unsupported_file), details.getText().toString());
-                activity.findViewById(R.id.clear_file).performClick();
-                assertEquals(activity.getString(R.string.no_file), details.getText().toString());
+                TextView details = activity.findViewById(resource(activity, "id", "file_details"));
+                assertEquals(activity.getString(resource(activity, "string", "unsupported_file")), details.getText().toString());
+                activity.findViewById(resource(activity, "id", "clear_file")).performClick();
+                assertEquals(activity.getString(resource(activity, "string", "no_file")), details.getText().toString());
             });
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(activity::finish);
