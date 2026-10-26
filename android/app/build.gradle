@@ -1,0 +1,45 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.pardova.emailattachments'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.pardova.emailattachments'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Only the emulator test job opts in. Store releases remain unsigned.
+            if (providers.gradleProperty('emulatorRelease').orNull == 'true') {
+                signingConfig signingConfigs.debug
+            }
+        }
+    }
+    testBuildType 'release'
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        abortOnError true
+        warningsAsErrors true
+        // Preview pins the highest SDK supported by AGP 8.13. Newer targets
+        // require an AGP migration and device validation before store release.
+        informational 'OldTargetApi'
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+    // Required annotation types referenced by AndroidX Test when R8 shrinks tests.
+    androidTestImplementation 'com.google.errorprone:error_prone_annotations:2.51.0'
+}

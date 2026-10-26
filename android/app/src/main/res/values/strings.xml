@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Email Attachments</string>
+    <string name="title">Large-file email bridge</string>
+    <string name="intro">Select a file or share one into this app.</string>
+    <string name="choose_file">Choose file</string>
+    <string name="clear_file">Clear selection</string>
+    <string name="no_file">No file selected.</string>
+    <string name="checking_file">Checking file details…</string>
+    <string name="selected_file">Selected: %1$s\nSize: %2$s</string>
+    <string name="unknown_size">Not provided by the file provider</string>
+    <string name="file_bytes">%1$s bytes</string>
+    <string name="unnamed_file">Selected file</string>
+    <string name="unsupported_file">Choose one accessible file using the system picker or a share action.</string>
+    <string name="unreadable_file">File details could not be read. Try selecting the file again.</string>
+    <string name="invalid_size">This file is empty or exceeds the initial 500 GB transfer limit.</string>
+    <string name="download_notice">When sending is available, the recipient will have 4 hours to download after the server completes and verifies the transfer. Selecting a file does not start that window.</string>
+    <string name="development_status">File selection preview. Sending and payment are not connected in this Android build. No file has been uploaded or sent.</string>
+    <string name="picker_missing">No file picker is available on this device.</string>
+</resources>
