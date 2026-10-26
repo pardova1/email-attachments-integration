@@ -45,7 +45,7 @@ jobs:
       - name: Test actual minified release on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 36
           arch: x86_64
           working-directory: android
           script: ./gradlew --no-daemon -PemulatorRelease=true connectedReleaseAndroidTest

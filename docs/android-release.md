@@ -27,6 +27,13 @@ Open `android/` in Android Studio, or install JDK 17 and the Android SDK and set
 Build Tools 35.0.0, and minimum SDK 26. The Gradle wrapper verifies the distribution's
 SHA-256 before executing it.
 
+This preview deliberately targets API 36 within AGP 8.13's documented support.
+Only the `OldTargetApi` upgrade notice is informational; other lint warnings
+remain errors. A newer target requires an AGP migration and Android compatibility
+validation before store release. CI exercises the minified app on API 36.
+The test APK includes Error Prone annotation definitions required by AndroidX
+Test's R8 processing; these are not production app dependencies.
+
 ```sh
 cd android
 ./gradlew testDebugUnitTest lintRelease bundleRelease
