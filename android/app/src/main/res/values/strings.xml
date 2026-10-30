@@ -24,5 +24,7 @@
     <string name="preparation_complete">File prepared on this device. Nothing has been uploaded or sent, and the download window has not started.</string>
     <string name="preparation_failed">The file could not be prepared or its size changed. Select it again and retry.</string>
     <string name="preparation_cancelled">Preparation cancelled. Nothing has been sent.</string>
+    <string name="integrity_details">View integrity details</string>
+    <string name="integrity_fingerprint">Local file SHA-256:\n%1$s\n\nBytes checked: %2$s\n\nThis fingerprint describes the bytes read on this device. A future upload must match it before delivery can be confirmed.</string>
     <string name="picker_missing">No file picker is available on this device.</string>
 </resources>

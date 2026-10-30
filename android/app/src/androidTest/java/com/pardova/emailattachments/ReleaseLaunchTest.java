@@ -8,6 +8,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.SystemClock;
 import android.view.View;
+import android.view.KeyEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.CheckBox;
 import android.widget.TextView;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -86,6 +88,17 @@ public final class ReleaseLaunchTest {
         fail("Provider did not reach expected state: " + name);
     }
 
+    private void awaitDisplayedFingerprint(String fingerprint) {
+        long deadline = SystemClock.uptimeMillis() + 10_000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo root = InstrumentationRegistry.getInstrumentation()
+                    .getUiAutomation().getRootInActiveWindow();
+            if (root != null && !root.findAccessibilityNodeInfosByText(fingerprint).isEmpty()) return;
+            SystemClock.sleep(25);
+        }
+        fail("The minified app did not display the exact expected SHA-256 fingerprint");
+    }
+
     @Test public void clearingBlockedPreparationCannotPublishLateSuccess() {
         Uri uri = Uri.parse("content://com.pardova.emailattachments.test.fixture/slow-" + UUID.randomUUID());
         Activity activity = launch(new Intent(Intent.ACTION_SEND).setType("application/octet-stream")
@@ -138,6 +151,11 @@ public final class ReleaseLaunchTest {
             });
             awaitStatus(activity, "preparation_complete");
             assertEquals(1, opened(uri));
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+                activity.findViewById(resource(activity, "id", "integrity_details")).performClick();
+            });
+            awaitDisplayedFingerprint("e9489f37fb3051e9efa1dc916004d7274e7b63975e3209708947267f2393a9be");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
             InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
                 TextView delivery = activity.findViewById(resource(activity, "id", "transfer_status"));
                 assertEquals(activity.getString(resource(activity, "string", "development_status")), delivery.getText().toString());

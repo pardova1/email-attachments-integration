@@ -31,10 +31,11 @@ byte counter. It rejects empty streams, actual bytes above the server's initial
 limit, and any difference between known provider metadata and the count read.
 Unknown metadata is allowed, but the actual count is still checked. A digest is
 only produced after a complete successful read. The file is never converted to
-text or rewritten.
+text or rewritten. Optional integrity details show the locally computed fingerprint
+and actual count. They describe the local read, not proof of a completed upload.
 
 Metadata, preparation and resource cleanup each have a separate single worker.
-Progress is throttled to at most four UI updates per second. Cancel immediately
+Progress updates are spaced at least 250 ms apart. Cancel immediately
 invalidates the active job; resource close and provider-open cancellation happen
 on a cleanup worker. Clear, acknowledgement removal, selection replacement and
 activity destruction invalidate old results. Confirmation is not saved across
@@ -90,7 +91,8 @@ Additional unit tests exercise known SHA-256 vectors, binary preservation, bound
 reads, unknown/changed/oversized files, read failures and cancellation. A provider
 installed only in the instrumentation APK serves synthetic bytes and a controlled
 blocked pipe. Emulator tests verify acknowledgement before opening bytes, unknown
-size preparation, size-change rejection, and that cancellation/clear cannot
+size preparation with the exact binary fingerprint displayed by the minified app,
+size-change rejection, and that cancellation/clear cannot
 publish success after a delayed provider response. Production builds contain no
 fixture provider.
 

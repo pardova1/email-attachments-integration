@@ -28,6 +28,8 @@
         <TextView android:id="@+id/preparation_status" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="16dp"
             android:text="@string/not_prepared" android:textSize="18sp" android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/integrity_details" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:enabled="false" android:text="@string/integrity_details" />
         <TextView android:id="@+id/transfer_status" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="24dp"
             android:text="@string/development_status" android:textSize="18sp" />

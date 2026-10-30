@@ -1,6 +1,7 @@
 package com.pardova.emailattachments;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
@@ -32,6 +33,8 @@ public final class MainActivity extends Activity {
     private CheckBox notice;
     private Button prepareButton;
     private Button cancelButton;
+    private Button integrityButton;
+    private AlertDialog integrityDialog;
     private int selectionGeneration;
     private Uri selectedUri;
     private Long reportedBytes;
@@ -58,6 +61,8 @@ public final class MainActivity extends Activity {
         notice = findViewById(R.id.confirm_notice);
         prepareButton = findViewById(R.id.prepare_file);
         cancelButton = findViewById(R.id.cancel_preparation);
+        integrityButton = findViewById(R.id.integrity_details);
+        integrityButton.setOnClickListener(view -> showIntegrityDetails());
         notice.setOnCheckedChangeListener((button, checked) -> {
             if (!checked) {
                 stopPreparation();
@@ -113,6 +118,7 @@ public final class MainActivity extends Activity {
 
     private void resetSelection() {
         selectionGeneration++;
+        if (integrityDialog != null) integrityDialog.dismiss();
         stopPreparation();
         selectedUri = null;
         reportedBytes = null;
@@ -127,6 +133,19 @@ public final class MainActivity extends Activity {
         prepareButton.setEnabled(selectedUri != null && notice.isChecked()
                 && activePreparation == null && preparedFile == null);
         cancelButton.setEnabled(activePreparation != null);
+        integrityButton.setEnabled(preparedFile != null);
+    }
+
+    private void showIntegrityDetails() {
+        FilePreparation.Result result = preparedFile;
+        if (result == null) return;
+        integrityDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.integrity_details)
+                .setMessage(getString(R.string.integrity_fingerprint, result.sha256,
+                        NumberFormat.getIntegerInstance().format(result.totalBytes)))
+                .setPositiveButton(android.R.string.ok, null).create();
+        integrityDialog.setOnDismissListener(dialog -> integrityDialog = null);
+        integrityDialog.show();
     }
 
     private void showFile(Uri uri) {
@@ -254,6 +273,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         selectionGeneration++;
+        if (integrityDialog != null) integrityDialog.dismiss();
         stopPreparation();
         preparedFile = null;
         selectedUri = null;
