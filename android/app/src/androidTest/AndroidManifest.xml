@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Test APK only. Publishes synthetic bytes, never customer data. -->
+        <provider android:name="com.pardova.emailattachments.PreparationFixtureProvider"
+            android:authorities="com.pardova.emailattachments.test.fixture"
+            android:exported="true" tools:ignore="ExportedContentProvider" />
+    </application>
+</manifest>

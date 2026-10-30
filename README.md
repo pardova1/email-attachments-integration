@@ -20,7 +20,8 @@ Never commit credentials, API keys, access tokens, private keys, or production s
 
 ## Status
 An initial [native Android module with R8 release optimization](docs/android-release.md)
-provides file selection and Android Share intake. It is a selection preview;
+provides file selection, Android Share intake and cancellable local SHA-256 preparation
+after the four-hour notice is acknowledged. It is a preparation preview;
 native sending, payment, production signing and store distribution remain pending.
 
 The transfer engine, authenticated connection assistance, and server-side transfer readiness gate are implemented with regression tests. Customer notifications have an optional Resend adapter; see [provider setup and current production gaps](docs/customer-email-provider.md). An embeddable [browser billing panel](docs/browser-billing.md), optional Stripe checkout and durable key-vault adapters are implemented; see [payment setup and limits](docs/stripe-payment-provider.md). Live email-composer integrations, credentials/provider provisioning, webhook provisioning/reconciliation, connection probes, deployment, and worldwide testing remain pending. The repository is not yet a completed downloadable application.

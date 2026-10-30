@@ -14,6 +14,17 @@
     <string name="unreadable_file">File details could not be read. Try selecting the file again.</string>
     <string name="invalid_size">This file is empty or exceeds the initial 500 GB transfer limit.</string>
     <string name="download_notice">When sending is available, the recipient will have 4 hours to download after the server completes and verifies the transfer. Selecting a file does not start that window.</string>
-    <string name="development_status">File selection preview. Sending and payment are not connected in this Android build. No file has been uploaded or sent.</string>
+    <string name="development_status">File preparation preview. Sending and payment are not connected in this Android build. No file has been uploaded or sent.</string>
+    <string name="confirm_notice">I understand the recipient will have 4 hours to download after the transfer is completed and verified.</string>
+    <string name="prepare_file">Prepare file</string>
+    <string name="cancel_preparation">Cancel preparation</string>
+    <string name="not_prepared">File not prepared.</string>
+    <string name="preparing_file">Preparing file for an integrity check…</string>
+    <string name="preparation_progress">Preparing file: %1$s bytes checked.</string>
+    <string name="preparation_complete">File prepared on this device. Nothing has been uploaded or sent, and the download window has not started.</string>
+    <string name="preparation_failed">The file could not be prepared or its size changed. Select it again and retry.</string>
+    <string name="preparation_cancelled">Preparation cancelled. Nothing has been sent.</string>
+    <string name="integrity_details">View integrity details</string>
+    <string name="integrity_fingerprint">Local file SHA-256:\n%1$s\n\nBytes checked: %2$s\n\nThis fingerprint describes the bytes read on this device. A future upload must match it before delivery can be confirmed.</string>
     <string name="picker_missing">No file picker is available on this device.</string>
 </resources>
