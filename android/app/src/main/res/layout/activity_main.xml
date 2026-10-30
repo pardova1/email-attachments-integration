@@ -17,6 +17,17 @@
             android:layout_height="wrap_content" android:text="@string/clear_file" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="24dp" android:text="@string/download_notice" android:textSize="18sp" />
+        <CheckBox android:id="@+id/confirm_notice" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp"
+            android:enabled="false" android:saveEnabled="false"
+            android:text="@string/confirm_notice" android:textSize="18sp" />
+        <Button android:id="@+id/prepare_file" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:enabled="false" android:text="@string/prepare_file" />
+        <Button android:id="@+id/cancel_preparation" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:enabled="false" android:text="@string/cancel_preparation" />
+        <TextView android:id="@+id/preparation_status" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp"
+            android:text="@string/not_prepared" android:textSize="18sp" android:accessibilityLiveRegion="polite" />
         <TextView android:id="@+id/transfer_status" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="24dp"
             android:text="@string/development_status" android:textSize="18sp" />
