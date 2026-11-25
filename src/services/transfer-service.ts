@@ -66,7 +66,15 @@ export class TransferService {
     const activeExpiry = restored.session.status === "complete"
       ? restored.session.downloadExpiresAt
       : restored.session.uploadExpiresAt;
-    if (activeExpiry && activeExpiry.getTime() <= Date.now()) {
+    if (restored.session.status === "expired" || (activeExpiry && activeExpiry.getTime() <= Date.now())) {
+      if (restored.persisted.keyReference) {
+        await this.restoreObserver?.onRestored({
+          transferId: restored.persisted.transferId,
+          laneId: restored.persisted.laneId,
+          keyReference: restored.persisted.keyReference,
+          status: "expired"
+        });
+      }
       restored.session.status = "expired";
       await this.durable.expire(id);
       await this.storage.purge(id);
